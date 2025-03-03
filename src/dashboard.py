@@ -75,7 +75,7 @@ product_df, sale_df = load_sample_data()
 processor.set_dataframes(product_df, sale_df)
 
 # Ajoute un sélecteur d'ID de fabricant dans la barre latérale
-manufacturer_id = st.sidebar.number_input("ID du Fabricant", min_value=1, max_value=20, value=1664)
+manufacturer_id = st.sidebar.number_input("ID du Fabricant", min_value=1, max_value=2000, value=1664)
 
 # Ajoute un sélecteur de catégorie
 available_categories = sorted(product_df['catID'].unique())
