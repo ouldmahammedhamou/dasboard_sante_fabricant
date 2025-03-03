@@ -9,6 +9,7 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import sys
 import os
+import time
 
 # Ajoute le répertoire src au chemin Python
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -19,14 +20,15 @@ from data_processor import DataProcessor
 
 # Configuration de la page
 st.set_page_config(
-    page_title="Tableau de Bord de Santé des Fabricants sur le Marché",
+    page_title="Tableau de Bord - Santé des Fabricants",
     page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
-# Ajoute un titre et une description
-st.title("Tableau de Bord de Santé des Fabricants sur le Marché")
+# Titre du tableau de bord
+st.title("📊 Tableau de Bord - Santé des Fabricants sur le Marché")
+
+# Description du tableau de bord
 st.markdown("""
 Ce tableau de bord présente les indicateurs de santé des fabricants sur le marché pour différentes catégories de produits.
 En analysant les indicateurs de performance clés (KPIs), vous pouvez comprendre la position de leadership des fabricants sur le marché.
@@ -35,25 +37,119 @@ En analysant les indicateurs de performance clés (KPIs), vous pouvez comprendre
 # Initialise le récupérateur de données et le processeur
 @st.cache_resource
 def initialize_data_processor():
+    """Initialise le processeur de données et le récupérateur"""
+    # Crée le récupérateur et le processeur
     fetcher = DataFetcher()
     processor = DataProcessor()
     return fetcher, processor
 
 fetcher, processor = initialize_data_processor()
 
+# Crée le répertoire cache s'il n'existe pas
+if not os.path.exists("cache"):
+    os.makedirs("cache")
+
 # Filtres de la barre latérale
 st.sidebar.header("Filtres")
 
-# Charge des données d'exemple (dans une application réelle, elles seraient récupérées depuis l'API)
-@st.cache_data
-def load_sample_data():
-    # Données d'exemple pour les produits
+# Ajoute un sélecteur de source de données
+data_source = st.sidebar.radio(
+    "Source de données",
+    options=["Données en cache", "Données des fichiers de test", "Données API en temps réel"],
+    index=0
+)
+
+# Ajoute un bouton de rafraîchissement des données
+if st.sidebar.button("🔄 Rafraîchir les données"):
+    # Efface le cache et redémarre l'application
+    st.cache_data.clear()
+    st.rerun()
+
+# Fonction pour charger les données depuis l'API
+def load_data_from_api():
+    """
+    Charge les données directement depuis l'API
+    
+    Retourne:
+        Tuple contenant les DataFrames des produits et des accords de vente
+    """
+    try:
+        st.sidebar.info("⏳ Chargement des données depuis l'API en cours...")
+        
+        # Récupérer un nombre limité de logs pour la démonstration
+        product_logs = fetcher.get_multiple_product_logs(1, 100)
+        sale_logs = fetcher.get_multiple_sale_logs(1, 100)
+        
+        if not product_logs or not sale_logs:
+            st.sidebar.warning("⚠️ Aucune donnée trouvée dans l'API, utilisation des données d'exemple.")
+            return None, None
+            
+        # Convertir les logs en DataFrames
+        product_df = fetcher.convert_logs_to_dataframe(product_logs, 'product')
+        sale_df = fetcher.convert_logs_to_dataframe(sale_logs, 'sale')
+        
+        st.sidebar.success("✅ Données chargées depuis l'API")
+        return product_df, sale_df
+    except Exception as e:
+        st.sidebar.error(f"❌ Erreur lors du chargement depuis l'API: {e}")
+        return None, None
+
+# Charge des données avec stratégie de cache
+@st.cache_data(ttl=3600)  # Cache pendant une heure
+def load_data_with_cache():
+    """
+    Charge les données avec une stratégie de cache multi-niveaux:
+    1. Essaie de charger depuis le cache fichier
+    2. Essaie de charger depuis les fichiers de test
+    3. Génère des données d'exemple en cas d'échec
+    
+    Retourne:
+        Tuple contenant les DataFrames des produits et des accords de vente
+    """
+    # Définit les chemins des fichiers cache
+    cache_dir = "cache"
+    product_cache = f"{cache_dir}/product_data.csv"
+    sale_cache = f"{cache_dir}/sale_data.csv"
+    
+    # 1. Essaie de charger depuis le cache fichier
+    try:
+        product_df = fetcher.load_data_from_cache(product_cache)
+        sale_df = fetcher.load_data_from_cache(sale_cache)
+        
+        if product_df is not None and sale_df is not None:
+            st.sidebar.success("✅ Données chargées depuis le cache")
+            return product_df, sale_df
+    except Exception as e:
+        st.sidebar.info(f"Impossible de charger depuis le cache: {e}")
+    
+    # 2. Essaie de charger depuis les fichiers de test
+    try:
+        product_file_path = "data_test/produits-tous/produits-tous.orig"
+        sale_file_path = "data_test/pointsDeVente-tous/pointsDeVente-tous"
+        
+        if os.path.exists(product_file_path) and os.path.exists(sale_file_path):
+            product_df = fetcher.load_test_data_from_text_file(product_file_path, 'product')
+            sale_df = fetcher.load_test_data_from_text_file(sale_file_path, 'sale')
+            
+            # Sauvegarde dans le cache
+            fetcher.save_data_to_cache(product_df, product_cache)
+            fetcher.save_data_to_cache(sale_df, sale_cache)
+            
+            st.sidebar.success("✅ Données chargées depuis les fichiers de test et mises en cache")
+            return product_df, sale_df
+    except Exception as e:
+        st.sidebar.info(f"Impossible de charger depuis les fichiers de test: {e}")
+    
+    # 3. Génère des données d'exemple
+    st.sidebar.warning("⚠️ Utilisation des données d'exemple générées")
+    
+    # Données d'exemple générées
     product_data = {
         'logID': list(range(1, 101)),
         'prodID': list(range(101, 201)),
         'catID': np.random.choice([5, 10, 15, 20], 100),
         'fabID': np.random.choice(list(range(1, 21)), 100),
-        'dateID': np.random.choice(list(range(1, 366)), 100)  # Supposons que les ID de date 2022 vont de 1 à 366
+        'dateID': np.random.choice(list(range(1, 366)), 100)
     }
     
     # Données d'exemple pour les accords de vente
@@ -63,7 +159,7 @@ def load_sample_data():
         'catID': np.random.choice([5, 10, 15, 20], 100),
         'fabID': np.random.choice(list(range(1, 21)), 100),
         'magID': np.random.choice(list(range(1, 31)), 100),  # 30 magasins
-        'dateID': np.random.choice(list(range(1, 366)), 100)  # Supposons que les ID de date 2022 vont de 1 à 366
+        'dateID': np.random.choice(list(range(1, 366)), 100)
     }
     
     product_df = pd.DataFrame(product_data)
@@ -71,11 +167,36 @@ def load_sample_data():
     
     return product_df, sale_df
 
-product_df, sale_df = load_sample_data()
+# Charge les données en fonction de la source sélectionnée
+if data_source == "Données API en temps réel":
+    product_df, sale_df = load_data_from_api()
+    if product_df is None or sale_df is None:
+        # Si l'API échoue, utiliser les données mises en cache
+        product_df, sale_df = load_data_with_cache()
+elif data_source == "Données des fichiers de test":
+    try:
+        product_file_path = "data_test/produits-tous/produits-tous.orig"
+        sale_file_path = "data_test/pointsDeVente-tous/pointsDeVente-tous"
+        
+        if os.path.exists(product_file_path) and os.path.exists(sale_file_path):
+            product_df = fetcher.load_test_data_from_text_file(product_file_path, 'product')
+            sale_df = fetcher.load_test_data_from_text_file(sale_file_path, 'sale')
+            st.sidebar.success("✅ Données chargées depuis les fichiers de test")
+        else:
+            st.sidebar.warning("⚠️ Fichiers de test non trouvés, utilisation des données en cache")
+            product_df, sale_df = load_data_with_cache()
+    except Exception as e:
+        st.sidebar.error(f"❌ Erreur lors du chargement depuis les fichiers de test: {e}")
+        product_df, sale_df = load_data_with_cache()
+else:
+    # Par défaut, charger les données mises en cache
+    product_df, sale_df = load_data_with_cache()
+
+# Mettre à jour le processeur avec les nouvelles données
 processor.set_dataframes(product_df, sale_df)
 
 # Ajoute un sélecteur d'ID de fabricant dans la barre latérale
-manufacturer_id = st.sidebar.number_input("ID du Fabricant", min_value=1, max_value=2000, value=1664)
+manufacturer_id = st.sidebar.number_input("ID du Fabricant", min_value=1, max_value=1000000, value=1664)
 
 # Ajoute un sélecteur de catégorie
 available_categories = sorted(product_df['catID'].unique())
@@ -116,6 +237,14 @@ with col1:
 with col2:
     # Calcule le nombre moyen de produits par fabricant pour la catégorie 5
     avg_products = processor.avg_products_per_manufacturer_by_category(category_id)
+    # Ajouter des informations de débogage
+    st.sidebar.write(f"**Débogage moyenne produits (catégorie {category_id}):**")
+    category_products = processor.product_df[processor.product_df['catID'] == category_id]
+    st.sidebar.write(f"Nombre de produits dans catégorie {category_id}: {len(category_products)}")
+    products_per_manufacturer = category_products.groupby('fabID')['prodID'].nunique()
+    st.sidebar.write(f"Nombre de fabricants: {len(products_per_manufacturer)}")
+    st.sidebar.write(f"Nombre moyen calculé: {products_per_manufacturer.mean()}")
+    
     st.metric(
         label=f"Nombre Moyen de Produits/Fabricant - Catégorie {category_id}",
         value=f"{avg_products:.2f}",

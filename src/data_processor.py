@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Any, Tuple, Optional
 from datetime import datetime
+import random
 
 class DataProcessor:
     """Classe pour traiter les données de produits et d'accords de vente et calculer les KPI"""
@@ -30,6 +31,17 @@ class DataProcessor:
         """
         self.product_df = product_df
         self.sale_df = sale_df
+        self._update_data_cache()
+    
+    def _update_data_cache(self) -> None:
+        """Met à jour le cache de données interne avec des calculs préliminaires"""
+        # Pré-calcul des données fréquemment utilisées
+        if self.product_df is not None and not self.product_df.empty:
+            self.product_categories = sorted(self.product_df['catID'].unique())
+            self.manufacturers = sorted(self.product_df['fabID'].unique())
+            
+        if self.sale_df is not None and not self.sale_df.empty:
+            self.stores = sorted(self.sale_df['magID'].unique())
     
     def get_date_from_id(self, date_id: int) -> datetime:
         """
@@ -49,17 +61,64 @@ class DataProcessor:
     
     def add_date_column(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Ajoute une colonne de date au DataFrame
+        Ajoute une colonne 'date' au DataFrame à partir de la colonne 'dateID'
         
         Paramètres:
-            df: DataFrame d'entrée
+            df: DataFrame à modifier
             
         Retourne:
-            DataFrame avec une colonne de date ajoutée
+            DataFrame avec la colonne 'date' ajoutée
         """
-        df_copy = df.copy()
-        df_copy['date'] = df_copy['dateID'].apply(self.get_date_from_id)
-        return df_copy
+        if df is None or df.empty:
+            return df
+            
+        # Vérifier si la colonne 'date' existe déjà
+        if 'date' in df.columns:
+            return df
+            
+        # Créer une copie pour éviter les warnings de SettingWithCopyWarning
+        result_df = df.copy()
+        
+        # Si dateID est au format YYYYMMDD (ex: 20220101)
+        if 'dateID' in result_df.columns and isinstance(result_df['dateID'].iloc[0], (str, int)) and str(result_df['dateID'].iloc[0]).isdigit():
+            try:
+                date_strings = result_df['dateID'].astype(str)
+                
+                # Vérifier si nous avons un format YYYYMMDD (8 chiffres)
+                if date_strings.str.len().max() == 8:
+                    result_df['date'] = pd.to_datetime(date_strings, format='%Y%m%d')
+                    result_df['month'] = result_df['date'].dt.month
+                    return result_df
+            except Exception as e:
+                print(f"Erreur lors de la conversion du format YYYYMMDD: {e}")
+        
+        # Si dateID est une chaîne de caractères au format YYYY-MM-DD
+        if 'dateID' in result_df.columns and isinstance(result_df['dateID'].iloc[0], str):
+            try:
+                result_df['date'] = pd.to_datetime(result_df['dateID'])
+                result_df['month'] = result_df['date'].dt.month
+                return result_df
+            except Exception as e:
+                print(f"Erreur lors de la conversion de dateID en date: {e}")
+        
+        # Si dateID est un entier représentant un jour de l'année
+        if 'dateID' in result_df.columns and (isinstance(result_df['dateID'].iloc[0], int) or 
+                                             isinstance(result_df['dateID'].iloc[0], float)):
+            try:
+                # Convertir les dateID (jour de l'année) en dates complètes pour 2022
+                # Exemple: dateID=1 -> 2022-01-01, dateID=32 -> 2022-02-01
+                base_date = datetime(2022, 1, 1)
+                result_df['date'] = result_df['dateID'].apply(
+                    lambda x: base_date + pd.Timedelta(days=int(x)-1)
+                )
+                result_df['month'] = result_df['date'].dt.month
+                return result_df
+            except Exception as e:
+                print(f"Erreur lors de la conversion de dateID (entier) en date: {e}")
+                
+        # Si aucune conversion n'a fonctionné, retourner le DataFrame original
+        print("Avertissement: Impossible d'ajouter une colonne de date.")
+        return df
     
     def count_market_actors_by_category(self, category_id: int) -> int:
         """
@@ -96,9 +155,16 @@ class DataProcessor:
         # Filtre les produits de la catégorie spécifique
         category_products = self.product_df[self.product_df['catID'] == category_id]
         
+        if category_products.empty:
+            return 0.0
+            
         # Pour chaque fabricant, calcule le nombre de produits
-        products_per_manufacturer = category_products.groupby('fabID')['prodID'].nunique()
+        products_per_manufacturer = category_products.groupby('fabID').size()
         
+        # Si aucun fabricant n'est trouvé
+        if len(products_per_manufacturer) == 0:
+            return 0.0
+            
         # Calcule la moyenne
         return products_per_manufacturer.mean()
     
