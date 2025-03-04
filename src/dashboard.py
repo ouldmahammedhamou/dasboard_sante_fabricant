@@ -77,8 +77,8 @@ def load_data_from_api():
         st.sidebar.info("⏳ Chargement des données depuis l'API en cours...")
         
         # Récupérer un nombre limité de logs pour la démonstration
-        product_logs = fetcher.get_multiple_product_logs(1, 100)
-        sale_logs = fetcher.get_multiple_sale_logs(1, 100)
+        product_logs = fetcher.get_multiple_product_logs(1, 1000000)
+        sale_logs = fetcher.get_multiple_sale_logs(1, 1000000)
         
         if not product_logs or not sale_logs:
             st.sidebar.warning("⚠️ Aucune donnée trouvée dans l'API, utilisation des données d'exemple.")
@@ -99,20 +99,49 @@ def load_data_from_api():
 def load_data_with_cache():
     """
     Charge les données avec une stratégie de cache multi-niveaux:
-    1. Essaie de charger depuis le cache fichier
-    2. Essaie de charger depuis les fichiers de test
-    3. Génère des données d'exemple en cas d'échec
+    1. Essaie de charger depuis l'API
+    2. Essaie de charger depuis le cache fichier
+    3. Essaie de charger depuis les fichiers de test
+    4. Génère des données d'exemple en cas d'échec
     
     Retourne:
         Tuple contenant les DataFrames des produits et des accords de vente
     """
-    # Définit les chemins des fichiers cache
-    cache_dir = "cache"
-    product_cache = f"{cache_dir}/product_data.csv"
-    sale_cache = f"{cache_dir}/sale_data.csv"
-    
-    # 1. Essaie de charger depuis le cache fichier
+    # 1. Essaie de charger depuis l'API
     try:
+        st.sidebar.info("⏳ Tentative de chargement depuis l'API...")
+        
+        # Récupérer des logs (augmenter la plage pour plus de données)
+        product_logs = fetcher.get_multiple_product_logs(1, 1000000)
+        sale_logs = fetcher.get_multiple_sale_logs(1, 1000000)
+        
+        if product_logs and sale_logs:
+            # Convertir les logs en DataFrames
+            product_df = fetcher.convert_logs_to_dataframe(product_logs, 'product')
+            sale_df = fetcher.convert_logs_to_dataframe(sale_logs, 'sale')
+            
+            # Sauvegarder dans le cache pour une utilisation future
+            cache_dir = "cache"
+            if not os.path.exists(cache_dir):
+                os.makedirs(cache_dir)
+                
+            product_cache = f"{cache_dir}/product_data.csv"
+            sale_cache = f"{cache_dir}/sale_data.csv"
+            
+            fetcher.save_data_to_cache(product_df, product_cache)
+            fetcher.save_data_to_cache(sale_df, sale_cache)
+            
+            st.sidebar.success("✅ Données chargées depuis l'API et mises en cache")
+            return product_df, sale_df
+    except Exception as e:
+        st.sidebar.warning(f"⚠️ Impossible de charger depuis l'API: {e}")
+    
+    # 2. Essaie de charger depuis le cache fichier
+    try:
+        cache_dir = "cache"
+        product_cache = f"{cache_dir}/product_data.csv"
+        sale_cache = f"{cache_dir}/sale_data.csv"
+        
         product_df = fetcher.load_data_from_cache(product_cache)
         sale_df = fetcher.load_data_from_cache(sale_cache)
         
@@ -120,9 +149,9 @@ def load_data_with_cache():
             st.sidebar.success("✅ Données chargées depuis le cache")
             return product_df, sale_df
     except Exception as e:
-        st.sidebar.info(f"Impossible de charger depuis le cache: {e}")
+        st.sidebar.info(f"⚠️ Impossible de charger depuis le cache: {e}")
     
-    # 2. Essaie de charger depuis les fichiers de test
+    # 3. Essaie de charger depuis les fichiers de test
     try:
         product_file_path = "data_test/produits-tous/produits-tous.orig"
         sale_file_path = "data_test/pointsDeVente-tous/pointsDeVente-tous"
@@ -132,15 +161,22 @@ def load_data_with_cache():
             sale_df = fetcher.load_test_data_from_text_file(sale_file_path, 'sale')
             
             # Sauvegarde dans le cache
+            cache_dir = "cache"
+            if not os.path.exists(cache_dir):
+                os.makedirs(cache_dir)
+                
+            product_cache = f"{cache_dir}/product_data.csv"
+            sale_cache = f"{cache_dir}/sale_data.csv"
+            
             fetcher.save_data_to_cache(product_df, product_cache)
             fetcher.save_data_to_cache(sale_df, sale_cache)
             
             st.sidebar.success("✅ Données chargées depuis les fichiers de test et mises en cache")
             return product_df, sale_df
     except Exception as e:
-        st.sidebar.info(f"Impossible de charger depuis les fichiers de test: {e}")
+        st.sidebar.info(f"⚠️ Impossible de charger depuis les fichiers de test: {e}")
     
-    # 3. Génère des données d'exemple
+    # 4. Génère des données d'exemple
     st.sidebar.warning("⚠️ Utilisation des données d'exemple générées")
     
     # Données d'exemple générées
