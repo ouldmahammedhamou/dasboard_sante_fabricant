@@ -191,7 +191,7 @@ class DataProcessor:
     
     def manufacturer_health_score(self, manufacturer_id: int, category_id: int, top_n_stores: int = 10) -> float:
         """
-        Calcule le score de santé d'un fabricant pour une catégorie spécifique et les N premiers magasins (Question 1.4)
+        Calcule le score de santé d'un fabricant pour une catégorie spécifique et les N premiers magasins
         
         Paramètres:
             manufacturer_id: ID du fabricant
@@ -201,10 +201,19 @@ class DataProcessor:
         Retourne:
             Score de santé (proportion moyenne de produits du fabricant parmi tous les produits)
         """
-        if self.sale_df is None:
-            raise ValueError("DataFrame d'accords de vente non défini")
+        if self.sale_df is None or self.product_df is None:
+            return 0.0
+            
+        # Vérifier si le fabricant a des produits dans cette catégorie
+        manufacturer_products = self.product_df[
+            (self.product_df['catID'] == category_id) & 
+            (self.product_df['fabID'] == manufacturer_id)
+        ]
         
-        # Obtient les N premiers magasins
+        if len(manufacturer_products) == 0:
+            return 0.0
+            
+        # Obtient les N premiers magasins basés sur le nombre total d'accords de vente
         top_stores_df = self.top_stores(top_n_stores)
         top_store_ids = top_stores_df['magID'].tolist()
         
@@ -214,25 +223,32 @@ class DataProcessor:
             (self.sale_df['magID'].isin(top_store_ids))
         ]
         
-        # Calcule le nombre de produits de ce fabricant et le nombre total de produits dans chaque magasin
-        store_stats = []
+        if len(category_sales) == 0:
+            return 0.0
+        
+        # Calcule le score pour chaque magasin
+        store_scores = []
         for store_id in top_store_ids:
             store_sales = category_sales[category_sales['magID'] == store_id]
             
-            # Nombre total de produits de cette catégorie dans ce magasin
+            if len(store_sales) == 0:
+                store_scores.append(0.0)
+                continue
+                
+            # Nombre total de produits uniques dans ce magasin pour cette catégorie
             total_products = store_sales['prodID'].nunique()
             
-            # Nombre de produits de ce fabricant pour cette catégorie dans ce magasin
+            # Nombre de produits uniques de ce fabricant dans ce magasin pour cette catégorie
             manufacturer_products = store_sales[
                 store_sales['fabID'] == manufacturer_id
             ]['prodID'].nunique()
             
-            # Calcule la proportion
-            ratio = manufacturer_products / total_products if total_products > 0 else 0
-            store_stats.append(ratio)
+            # Calcule le score pour ce magasin
+            store_score = manufacturer_products / total_products if total_products > 0 else 0.0
+            store_scores.append(store_score)
         
-        # Calcule la proportion moyenne
-        return np.mean(store_stats) if store_stats else 0
+        # Retourne la moyenne des scores de tous les magasins
+        return np.mean(store_scores) if store_scores else 0.0
     
     def market_actors_over_time(self, category_id: int, start_date: datetime, end_date: datetime, 
                                freq: str = 'M') -> pd.DataFrame:

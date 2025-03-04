@@ -179,23 +179,27 @@ def load_data_with_cache():
     # 4. Génère des données d'exemple
     st.sidebar.warning("⚠️ Utilisation des données d'exemple générées")
     
+    # Définir des catégories réalistes
+    categories = [1, 2, 3, 4, 5]  # Catégories de 1 à 5
+    n_records = 1000  # Plus de données pour un meilleur exemple
+    
     # Données d'exemple générées
     product_data = {
-        'logID': list(range(1, 101)),
-        'prodID': list(range(101, 201)),
-        'catID': np.random.choice([5, 10, 15, 20], 100),
-        'fabID': np.random.choice(list(range(1, 21)), 100),
-        'dateID': np.random.choice(list(range(1, 366)), 100)
+        'logID': list(range(1, n_records + 1)),
+        'prodID': list(range(101, n_records + 101)),
+        'catID': np.random.choice(categories, n_records),
+        'fabID': np.random.choice(list(range(1, 21)), n_records),
+        'dateID': np.random.choice(list(range(1, 366)), n_records)
     }
     
     # Données d'exemple pour les accords de vente
     sale_data = {
-        'logID': list(range(1, 101)),
-        'prodID': list(range(101, 201)),
-        'catID': np.random.choice([5, 10, 15, 20], 100),
-        'fabID': np.random.choice(list(range(1, 21)), 100),
-        'magID': np.random.choice(list(range(1, 31)), 100),  # 30 magasins
-        'dateID': np.random.choice(list(range(1, 366)), 100)
+        'logID': list(range(1, n_records + 1)),
+        'prodID': list(range(101, n_records + 101)),
+        'catID': np.random.choice(categories, n_records),  # Utiliser les mêmes catégories
+        'fabID': np.random.choice(list(range(1, 21)), n_records),
+        'magID': np.random.choice(list(range(1, 31)), n_records),  # 30 magasins
+        'dateID': np.random.choice(list(range(1, 366)), n_records)
     }
     
     product_df = pd.DataFrame(product_data)
@@ -235,8 +239,42 @@ processor.set_dataframes(product_df, sale_df)
 manufacturer_id = st.sidebar.number_input("ID du Fabricant", min_value=1, max_value=1000000, value=1664)
 
 # Ajoute un sélecteur de catégorie
+st.sidebar.write("\n**Catégories Disponibles:**")
 available_categories = sorted(product_df['catID'].unique())
-category_id = st.sidebar.selectbox("Catégorie de Produit", options=available_categories, index=0 if 5 in available_categories else 0)
+
+if len(available_categories) == 0:
+    st.error("❌ Aucune catégorie trouvée dans les données.")
+else:
+    # Afficher un résumé des données
+    st.sidebar.write("📊 **Résumé des Données:**")
+    total_products = len(product_df)
+    total_sales = len(sale_df)
+    st.sidebar.write(f"Nombre total de produits: {total_products}")
+    st.sidebar.write(f"Nombre total d'accords de vente: {total_sales}")
+    
+    # Afficher les statistiques par catégorie
+    st.sidebar.write("\n**Statistiques par Catégorie:**")
+    category_counts = {}
+    for cat in available_categories:
+        products_in_cat = len(product_df[product_df['catID'] == cat])
+        sales_in_cat = len(sale_df[sale_df['catID'] == cat])
+        category_counts[cat] = sales_in_cat
+        st.sidebar.write(f"Catégorie {cat}:")
+        st.sidebar.write(f"  - Produits: {products_in_cat}")
+        st.sidebar.write(f"  - Accords de vente: {sales_in_cat}")
+
+    # Sélectionner la catégorie avec le plus d'accords de vente comme défaut
+    default_category = max(category_counts.items(), key=lambda x: x[1])[0]
+    category_id = st.sidebar.selectbox(
+        "Catégorie de Produit",
+        options=available_categories,
+        index=available_categories.index(default_category),
+        help="Sélectionnez une catégorie de produit parmi celles disponibles"
+    )
+
+    # Vérifier si la catégorie sélectionnée a des données
+    if category_counts[category_id] == 0:
+        st.warning(f"⚠️ Attention: La catégorie {category_id} n'a aucun accord de vente. Veuillez sélectionner une autre catégorie.")
 
 # Ajoute un sélecteur de plage de dates
 start_date = datetime(2022, 1, 1)
@@ -289,12 +327,34 @@ with col2:
     )
 
 with col3:
-    # Calcule le score de santé du fabricant
-    health_score = processor.manufacturer_health_score(manufacturer_id, category_id)
+    # Vérifier si nous avons des données pour cette catégorie
+    category_sales = processor.sale_df[processor.sale_df['catID'] == category_id]
+    manufacturer_products = processor.product_df[
+        (processor.product_df['catID'] == category_id) & 
+        (processor.product_df['fabID'] == manufacturer_id)
+    ]
+    
+    if len(category_sales) == 0:
+        st.error(f"❌ Aucun accord de vente trouvé pour la catégorie {category_id}")
+        health_score = 0.0
+    elif len(manufacturer_products) == 0:
+        st.warning(f"⚠️ Le fabricant {manufacturer_id} n'a pas de produits dans la catégorie {category_id}")
+        health_score = 0.0
+    else:
+        # Calcule le score de santé du fabricant
+        health_score = processor.manufacturer_health_score(manufacturer_id, category_id)
+        
+        # Ajouter des détails sur le calcul
+        st.sidebar.write(f"\n**Détails du Score de Santé:**")
+        st.sidebar.write(f"- Fabricant: {manufacturer_id}")
+        st.sidebar.write(f"- Catégorie: {category_id}")
+        st.sidebar.write(f"- Produits du fabricant: {len(manufacturer_products)}")
+        st.sidebar.write(f"- Accords de vente dans la catégorie: {len(category_sales)}")
+    
     st.metric(
         label=f"Score de Santé du Fabricant {manufacturer_id}",
         value=f"{health_score:.2%}",
-        delta="+1.2% par rapport au mois dernier",  # Dans une application réelle, cela serait calculé
+        delta=None,
         delta_color="normal"
     )
 
@@ -302,6 +362,23 @@ with col3:
 st.header(f"Top 10 des Magasins")
 top_stores = processor.top_stores(10)
 
+# Ajouter des informations détaillées de débogage sur les magasins
+st.sidebar.write("\n**Analyse Détaillée des Top Magasins:**")
+
+# Afficher le nombre total de magasins
+total_stores = processor.sale_df['magID'].nunique()
+st.sidebar.write(f"Nombre total de magasins: {total_stores}")
+
+# Afficher le nombre total d'accords de vente
+total_agreements = len(processor.sale_df)
+st.sidebar.write(f"Nombre total d'accords de vente: {total_agreements}")
+
+# Afficher les détails des top 10 magasins
+st.sidebar.write("\nTop 10 magasins par nombre d'accords:")
+store_counts = processor.sale_df['magID'].value_counts()
+for magID, count in store_counts.head(10).items():
+    percentage = (count / total_agreements) * 100
+    st.sidebar.write(f"Magasin {magID}: {count} accords ({percentage:.1f}% du total)")
 
 # Crée un graphique à barres
 fig_stores = px.bar(
