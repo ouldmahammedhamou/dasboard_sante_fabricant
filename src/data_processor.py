@@ -10,6 +10,142 @@ import random
 class DataProcessor:
     """Classe pour traiter les données de produits et d'accords de vente et calculer les KPI"""
     
+    def calculate_market_actors_delta(self, category_id: int, period_days: int = 30) -> Tuple[int, str]:
+        """
+        Calcule la variation du nombre d'acteurs du marché sur une période donnée
+        
+        Paramètres:
+            category_id: ID de la catégorie
+            period_days: Nombre de jours pour la période de comparaison
+            
+        Retourne:
+            Tuple contenant le nombre actuel d'acteurs et le texte du delta
+        """
+        try:
+            if self.product_df is None:
+                raise ValueError("DataFrame de produits non défini")
+
+            # S'assurer que la colonne date existez
+            df = self.add_date_column(self.product_df.copy())
+            
+            # Obtenir la date la plus récente
+            latest_date = df['date'].max()
+            
+            # Calculer les périodes
+            current_start = latest_date - pd.Timedelta(days=period_days)
+            previous_start = current_start - pd.Timedelta(days=period_days)
+
+            # Calculer le nombre d'acteurs pour la période actuelle
+            current_actors = df[
+                (df['date'] > current_start) & 
+                (df['date'] <= latest_date) &
+                (df['catID'] == category_id)
+            ]['fabID'].nunique()
+
+            # Calculer le nombre d'acteurs pour la période précédente
+            previous_actors = df[
+                (df['date'] > previous_start) & 
+                (df['date'] <= current_start) &
+                (df['catID'] == category_id)
+            ]['fabID'].nunique()
+
+            # Calculer le delta et le pourcentage
+            delta = current_actors - previous_actors
+            if previous_actors > 0:
+                delta_percent = (delta / previous_actors) * 100
+            else:
+                delta_percent = 0 if current_actors == 0 else 100
+
+            # Formater le texte du delta
+            delta_text = f"{delta:+d} ({delta_percent:+.1f}%)"
+
+            return current_actors, delta_text
+
+        except Exception as e:
+            print(f"Erreur lors du calcul du delta des acteurs: {e}")
+            return 0, "Erreur"
+
+    def calculate_avg_products_delta(self, category_id: int, period_days: int = 30) -> Tuple[float, str]:
+        """
+        Calcule la variation du nombre moyen de produits par fabricant
+        
+        Paramètres:
+            category_id: ID de la catégorie
+            period_days: Nombre de jours pour la période de comparaison
+            
+        Retourne:
+            Tuple contenant la moyenne actuelle et le texte du delta
+        """
+        try:
+            if self.product_df is None:
+                raise ValueError("DataFrame de produits non défini")
+
+            df = self.add_date_column(self.product_df.copy())
+            latest_date = df['date'].max()
+            
+            # Calculer la moyenne actuelle
+            current_avg = self.avg_products_per_manufacturer_by_category(category_id)
+            
+            # Calculer la moyenne précédente
+            previous_df = df[
+                (df['date'] <= latest_date - pd.Timedelta(days=period_days)) &
+                (df['catID'] == category_id)
+            ]
+            previous_avg = previous_df.groupby('fabID')['prodID'].nunique().mean()
+
+            # Calculer le delta
+            if pd.isna(previous_avg) or previous_avg == 0:
+                delta_percent = 0 if current_avg == 0 else 100
+            else:
+                delta_percent = ((current_avg - previous_avg) / previous_avg) * 100
+
+            delta_text = f"{delta_percent:+.1f}%"
+            
+            return current_avg, delta_text
+
+        except Exception as e:
+            print(f"Erreur lors du calcul du delta des produits moyens: {e}")
+            return 0.0, "Erreur"
+
+    def calculate_health_score_delta(self, manufacturer_id: int, category_id: int, period_days: int = 30) -> Tuple[float, str]:
+        """
+        Calcule la variation du score de santé d'un fabricant
+        
+        Paramètres:
+            manufacturer_id: ID du fabricant
+            category_id: ID de la catégorie
+            period_days: Nombre de jours pour la période de comparaison
+            
+        Retourne:
+            Tuple contenant le score actuel et le texte du delta
+        """
+        try:
+            if self.sale_df is None:
+                raise ValueError("DataFrame des ventes non défini")
+
+            df = self.add_date_column(self.sale_df.copy())
+            latest_date = df['date'].max()
+            
+            # Calculer le score actuel
+            current_score = self.manufacturer_health_score(manufacturer_id, category_id)
+            
+            # Calculer le score précédent
+            previous_df = df[df['date'] <= latest_date - pd.Timedelta(days=period_days)]
+            previous_processor = DataProcessor(self.product_df, previous_df)
+            previous_score = previous_processor.manufacturer_health_score(manufacturer_id, category_id)
+
+            # Calculer le delta
+            delta = current_score - previous_score
+            delta_percent = delta * 100  # Convertir en pourcentage
+            delta_text = f"{delta_percent:+.1f}%"
+
+            return current_score, delta_text
+
+        except Exception as e:
+            print(f"Erreur lors du calcul du delta du score de santé: {e}")
+            return 0.0, "Erreur" 
+
+
     def __init__(self, product_df: Optional[pd.DataFrame] = None, sale_df: Optional[pd.DataFrame] = None):
         """
         Initialise le processeur de données

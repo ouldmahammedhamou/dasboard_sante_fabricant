@@ -9,7 +9,13 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import sys
 import os
-import time
+import requests
+import logging
+from typing import Optional, Tuple
+
+# Configuration du logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Ajoute le répertoire src au chemin Python
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -25,125 +31,17 @@ st.set_page_config(
     layout="wide"
 )
 
-# Titre du tableau de bord
-st.title("📊 Tableau de Bord - Santé des Fabricants sur le Marché")
-
-# Description du tableau de bord
-st.markdown("""
-Ce tableau de bord présente les indicateurs de santé des fabricants sur le marché pour différentes catégories de produits.
-En analysant les indicateurs de performance clés (KPIs), vous pouvez comprendre la position de leadership des fabricants sur le marché.
-""")
-
-# Initialise le récupérateur de données et le processeur
+# Initialisation
 @st.cache_resource
 def initialize_data_processor():
-    """Initialise le processeur de données et le récupérateur"""
-    # Crée le récupérateur et le processeur
     fetcher = DataFetcher()
     processor = DataProcessor()
     return fetcher, processor
 
-fetcher, processor = initialize_data_processor()
-
-# Crée le répertoire cache s'il n'existe pas
-if not os.path.exists("cache"):
-    os.makedirs("cache")
-
-# Filtres de la barre latérale
-st.sidebar.header("Filtres")
-
-# Ajoute un sélecteur de source de données
-data_source = st.sidebar.radio(
-    "Source de données",
-    options=["Données en cache", "Données des fichiers de test", "Données API en temps réel"],
-    index=0
-)
-
-# Ajoute un bouton de rafraîchissement des données
-if st.sidebar.button("🔄 Rafraîchir les données"):
-    # Efface le cache et redémarre l'application
-    st.cache_data.clear()
-    st.rerun()
-
-# Fonction pour charger les données depuis l'API
-def load_data_from_api():
-    """
-    Charge les données directement depuis l'API
-    
-    Retourne:
-        Tuple contenant les DataFrames des produits et des accords de vente
-    """
-    try:
-        st.sidebar.info("⏳ Chargement des données depuis l'API en cours...")
-        
-        # Récupérer un nombre limité de logs pour la démonstration
-        product_logs = fetcher.get_multiple_product_logs(1, 100)
-        sale_logs = fetcher.get_multiple_sale_logs(1, 100)
-        
-        if not product_logs or not sale_logs:
-            st.sidebar.warning("⚠️ Aucune donnée trouvée dans l'API, utilisation des données d'exemple.")
-            return None, None
-            
-        # Convertir les logs en DataFrames
-        product_df = fetcher.convert_logs_to_dataframe(product_logs, 'product')
-        sale_df = fetcher.convert_logs_to_dataframe(sale_logs, 'sale')
-        
-        st.sidebar.success("✅ Données chargées depuis l'API")
-        return product_df, sale_df
-    except Exception as e:
-        st.sidebar.error(f"❌ Erreur lors du chargement depuis l'API: {e}")
-        return None, None
-
-# Charge des données avec stratégie de cache
-@st.cache_data(ttl=3600)  # Cache pendant une heure
-def load_data_with_cache():
-    """
-    Charge les données avec une stratégie de cache multi-niveaux:
-    1. Essaie de charger depuis le cache fichier
-    2. Essaie de charger depuis les fichiers de test
-    3. Génère des données d'exemple en cas d'échec
-    
-    Retourne:
-        Tuple contenant les DataFrames des produits et des accords de vente
-    """
-    # Définit les chemins des fichiers cache
-    cache_dir = "cache"
-    product_cache = f"{cache_dir}/product_data.csv"
-    sale_cache = f"{cache_dir}/sale_data.csv"
-    
-    # 1. Essaie de charger depuis le cache fichier
-    try:
-        product_df = fetcher.load_data_from_cache(product_cache)
-        sale_df = fetcher.load_data_from_cache(sale_cache)
-        
-        if product_df is not None and sale_df is not None:
-            st.sidebar.success("✅ Données chargées depuis le cache")
-            return product_df, sale_df
-    except Exception as e:
-        st.sidebar.info(f"Impossible de charger depuis le cache: {e}")
-    
-    # 2. Essaie de charger depuis les fichiers de test
-    try:
-        product_file_path = "data_test/produits-tous/produits-tous.orig"
-        sale_file_path = "data_test/pointsDeVente-tous/pointsDeVente-tous"
-        
-        if os.path.exists(product_file_path) and os.path.exists(sale_file_path):
-            product_df = fetcher.load_test_data_from_text_file(product_file_path, 'product')
-            sale_df = fetcher.load_test_data_from_text_file(sale_file_path, 'sale')
-            
-            # Sauvegarde dans le cache
-            fetcher.save_data_to_cache(product_df, product_cache)
-            fetcher.save_data_to_cache(sale_df, sale_cache)
-            
-            st.sidebar.success("✅ Données chargées depuis les fichiers de test et mises en cache")
-            return product_df, sale_df
-    except Exception as e:
-        st.sidebar.info(f"Impossible de charger depuis les fichiers de test: {e}")
-    
-    # 3. Génère des données d'exemple
-    st.sidebar.warning("⚠️ Utilisation des données d'exemple générées")
-    
-    # Données d'exemple générées
+# Fonctions de chargement des données
+@st.cache_data
+def load_sample_data():
+    """Charge des données d'exemple"""
     product_data = {
         'logID': list(range(1, 101)),
         'prodID': list(range(101, 201)),
@@ -152,57 +50,100 @@ def load_data_with_cache():
         'dateID': np.random.choice(list(range(1, 366)), 100)
     }
     
-    # Données d'exemple pour les accords de vente
     sale_data = {
         'logID': list(range(1, 101)),
         'prodID': list(range(101, 201)),
         'catID': np.random.choice([5, 10, 15, 20], 100),
         'fabID': np.random.choice(list(range(1, 21)), 100),
-        'magID': np.random.choice(list(range(1, 31)), 100),  # 30 magasins
+        'magID': np.random.choice(list(range(1, 31)), 100),
         'dateID': np.random.choice(list(range(1, 366)), 100)
     }
     
-    product_df = pd.DataFrame(product_data)
-    sale_df = pd.DataFrame(sale_data)
-    
-    return product_df, sale_df
+    return pd.DataFrame(product_data), pd.DataFrame(sale_data)
 
-# Charge les données en fonction de la source sélectionnée
-if data_source == "Données API en temps réel":
-    product_df, sale_df = load_data_from_api()
-    if product_df is None or sale_df is None:
-        # Si l'API échoue, utiliser les données mises en cache
-        product_df, sale_df = load_data_with_cache()
-elif data_source == "Données des fichiers de test":
+@st.cache_data(ttl=3600)
+def load_real_data():
+    """Charge les données réelles depuis l'API"""
     try:
-        product_file_path = "data_test/produits-tous/produits-tous.orig"
-        sale_file_path = "data_test/pointsDeVente-tous/pointsDeVente-tous"
+        fetcher = DataFetcher(base_url="http://51.255.166.155:1353")
+        product_df, sale_df = fetcher.fetch_real_data()
         
-        if os.path.exists(product_file_path) and os.path.exists(sale_file_path):
-            product_df = fetcher.load_test_data_from_text_file(product_file_path, 'product')
-            sale_df = fetcher.load_test_data_from_text_file(sale_file_path, 'sale')
-            st.sidebar.success("✅ Données chargées depuis les fichiers de test")
-        else:
-            st.sidebar.warning("⚠️ Fichiers de test non trouvés, utilisation des données en cache")
-            product_df, sale_df = load_data_with_cache()
+        if product_df is None or sale_df is None or product_df.empty or sale_df.empty:
+            st.warning("Données vides reçues de l'API. Utilisation des données de démonstration.")
+            return load_sample_data()
+            
+        return product_df, sale_df
+        
     except Exception as e:
-        st.sidebar.error(f"❌ Erreur lors du chargement depuis les fichiers de test: {e}")
-        product_df, sale_df = load_data_with_cache()
-else:
-    # Par défaut, charger les données mises en cache
-    product_df, sale_df = load_data_with_cache()
+        st.error(f"Erreur lors du chargement des données: {str(e)}")
+        return load_sample_data()
 
-# Mettre à jour le processeur avec les nouvelles données
-processor.set_dataframes(product_df, sale_df)
+# Interface utilisateur
+st.title("Tableau de Bord de Santé des Fabricants sur le Marché")
+st.markdown("""
+Ce tableau de bord présente les indicateurs de santé des fabricants sur le marché pour différentes catégories de produits.
+En analysant les indicateurs de performance clés (KPIs), vous pouvez comprendre la position de leadership des fabricants sur le marché.
+""")
 
-# Ajoute un sélecteur d'ID de fabricant dans la barre latérale
-manufacturer_id = st.sidebar.number_input("ID du Fabricant", min_value=1, max_value=1000000, value=1664)
+# Initialisation des composants
+fetcher, processor = initialize_data_processor()
 
-# Ajoute un sélecteur de catégorie
+# Barre latérale
+st.sidebar.header("Filtres")
+
+# Section de contrôle des données
+st.sidebar.markdown("---")
+st.sidebar.subheader("Contrôle des données")
+
+# Bouton de rafraîchissement avec état
+if st.sidebar.button("🔄 Rafraîchir les données"):
+    with st.sidebar.status("Mise à jour des données...", expanded=True) as status:
+        st.cache_data.clear()
+        try:
+            product_df, sale_df = load_real_data()
+            processor.set_dataframes(product_df, sale_df)
+            status.update(label="Données mises à jour !", state="complete")
+            st.session_state.last_update = datetime.now()
+        except Exception as e:
+            status.update(label=f"Erreur: {str(e)}", state="error")
+
+# Affichage dernière mise à jour
+if 'last_update' in st.session_state:
+    st.sidebar.markdown(f"""
+        **Dernière mise à jour**: {st.session_state.last_update.strftime('%H:%M:%S')}
+    """)
+
+# Option de rafraîchissement automatique
+auto_refresh = st.sidebar.checkbox("Rafraîchissement automatique", value=False)
+if auto_refresh:
+    refresh_interval = st.sidebar.slider(
+        "Intervalle de rafraîchissement (minutes)",
+        min_value=1,
+        max_value=60,
+        value=5
+    )
+    if 'last_update' in st.session_state:
+        time_since_update = (datetime.now() - st.session_state.last_update).seconds / 60
+        if time_since_update >= refresh_interval:
+            st.experimental_rerun()
+
+st.sidebar.markdown("---")
+
+# Chargement initial des données
+try:
+    product_df, sale_df = load_real_data()
+    processor.set_dataframes(product_df, sale_df)
+except Exception as e:
+    st.error(f"Erreur lors du chargement initial des données: {e}")
+    product_df, sale_df = load_sample_data()
+    processor.set_dataframes(product_df, sale_df)
+
+# Filtres
+manufacturer_id = st.sidebar.number_input("ID du Fabricant", min_value=1, max_value=2000, value=1664)
 available_categories = sorted(product_df['catID'].unique())
 category_id = st.sidebar.selectbox("Catégorie de Produit", options=available_categories, index=0 if 5 in available_categories else 0)
 
-# Ajoute un sélecteur de plage de dates
+# Sélecteur de dates
 start_date = datetime(2022, 1, 1)
 end_date = datetime(2022, 12, 31)
 date_range = st.sidebar.date_input(
@@ -212,128 +153,128 @@ date_range = st.sidebar.date_input(
     max_value=end_date
 )
 
-# Si l'utilisateur a sélectionné une date, la convertit en un tuple contenant les dates de début et de fin
 if isinstance(date_range, tuple) and len(date_range) == 2:
     selected_start_date, selected_end_date = date_range
 else:
     selected_start_date, selected_end_date = start_date, end_date
 
-# Indicateurs KPI principaux
-st.header("Indicateurs de Performance Clés (KPIs)")
+# Période de comparaison
+period_days = st.sidebar.slider(
+    "Période de comparaison (jours)", 
+    min_value=7,
+    max_value=90,
+    value=30
+)
 
-# Crée une mise en page à trois colonnes pour afficher les KPI
+# KPIs
+st.header("Indicateurs de Performance Clés (KPIs)")
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    # Calcule le nombre d'acteurs du marché pour la catégorie 5
-    actor_count = processor.count_market_actors_by_category(category_id)
+    actor_count, delta_value = processor.calculate_market_actors_delta(category_id, period_days)
     st.metric(
         label=f"Nombre d'Acteurs du Marché - Catégorie {category_id}",
         value=actor_count,
-        delta="+2 par rapport au mois dernier",  # Dans une application réelle, cela serait calculé
-        delta_color="normal"
+        delta=delta_value,
+        delta_color="normal" if actor_count >= 0 else "inverse"
     )
 
 with col2:
-    # Calcule le nombre moyen de produits par fabricant pour la catégorie 5
     avg_products = processor.avg_products_per_manufacturer_by_category(category_id)
-    # Ajouter des informations de débogage
-    st.sidebar.write(f"**Débogage moyenne produits (catégorie {category_id}):**")
-    category_products = processor.product_df[processor.product_df['catID'] == category_id]
-    st.sidebar.write(f"Nombre de produits dans catégorie {category_id}: {len(category_products)}")
-    products_per_manufacturer = category_products.groupby('fabID')['prodID'].nunique()
-    st.sidebar.write(f"Nombre de fabricants: {len(products_per_manufacturer)}")
-    st.sidebar.write(f"Nombre moyen calculé: {products_per_manufacturer.mean()}")
-    
+    current_avg, delta_text = processor.calculate_avg_products_delta(category_id, period_days)
     st.metric(
         label=f"Nombre Moyen de Produits/Fabricant - Catégorie {category_id}",
-        value=f"{avg_products:.2f}",
-        delta="-0.5 par rapport au mois dernier",  # Dans une application réelle, cela serait calculé
+        value=f"{current_avg:.2f}",
+        delta=delta_text,
         delta_color="normal"
     )
 
 with col3:
-    # Calcule le score de santé du fabricant
-    health_score = processor.manufacturer_health_score(manufacturer_id, category_id)
-    st.metric(
-        label=f"Score de Santé du Fabricant {manufacturer_id}",
-        value=f"{health_score:.2%}",
-        delta="+1.2% par rapport au mois dernier",  # Dans une application réelle, cela serait calculé
-        delta_color="normal"
-    )
+    try:
+        current_score, delta_text = processor.calculate_health_score_delta(
+            manufacturer_id, 
+            category_id, 
+            period_days
+        )
+        st.metric(
+            label=f"Score de Santé du Fabricant {manufacturer_id}",
+            value=f"{current_score:.1%}",
+            delta=delta_text,
+            delta_color="normal" if float(delta_text.split('%')[0]) >= 0 else "inverse"
+        )
+    except Exception as e:
+        st.metric(
+            label=f"Score de Santé du Fabricant {manufacturer_id}",
+            value="N/A",
+            delta="Erreur de calcul",
+            delta_color="normal"
+        )
 
-# Affiche les 10 premiers magasins
-st.header(f"Top 10 des Magasins")
+# Graphiques
+st.header("Top 10 des Magasins")
 top_stores = processor.top_stores(10)
-
-
-# Crée un graphique à barres
 fig_stores = px.bar(
     top_stores, 
     x='magID', 
     y='agreement_count',
-    title=f"Top 10 des Magasins (par nombre d'accords de vente)",
+    title="Top 10 des Magasins (par nombre d'accords de vente)",
     labels={"magID": "ID du Magasin", "agreement_count": "Nombre d'Accords de Vente"},
     color='agreement_count',
     color_continuous_scale='Viridis'
 )
 st.plotly_chart(fig_stores, use_container_width=True)
 
-# Crée une mise en page à deux colonnes
+# Graphiques d'évolution
 col1, col2 = st.columns(2)
 
 with col1:
-    # Crée un graphique d'évolution du nombre d'acteurs du marché au fil du temps (données simulées)
     st.subheader(f"Évolution du Nombre d'Acteurs du Marché - Catégorie {category_id}")
-    
-    # Données mensuelles simulées
-    months = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 
-              'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre']
-    # Données simulées, seraient obtenues du processeur dans une application réelle
-    actor_counts = np.random.randint(15, 25, size=12)
-    
-    # Crée un graphique linéaire
+    market_evolution = processor.market_actors_over_time(
+        category_id,
+        selected_start_date,
+        selected_end_date,
+        'M'
+    )
     fig_actors = px.line(
-        x=months, 
-        y=actor_counts,
+        market_evolution,
+        x='period_start',
+        y='actor_count',
         markers=True,
-        title=f"Tendance du Nombre d'Acteurs du Marché - Catégorie {category_id} (2022)",
-        labels={"x": "Mois", "y": "Nombre d'Acteurs"}
+        title=f"Tendance du Nombre d'Acteurs du Marché - Catégorie {category_id}",
+        labels={"period_start": "Période", "actor_count": "Nombre d'Acteurs"}
     )
     st.plotly_chart(fig_actors, use_container_width=True)
 
 with col2:
-    # Crée un graphique d'évolution du score de santé du fabricant au fil du temps (données simulées)
     st.subheader(f"Évolution du Score de Santé du Fabricant {manufacturer_id}")
-    
-    # Données simulées, seraient obtenues du processeur dans une application réelle
-    health_scores = np.random.uniform(0.1, 0.3, size=12)
-    
-    # Crée un graphique linéaire
+    health_evolution = processor.calculate_health_score_evolution(
+        manufacturer_id,
+        category_id,
+        selected_start_date,
+        selected_end_date
+    )
     fig_health = px.line(
-        x=months, 
-        y=health_scores,
+        health_evolution,
+        x='period',
+        y='score',
         markers=True,
-        title=f"Tendance du Score de Santé du Fabricant {manufacturer_id} (2022)",
-        labels={"x": "Mois", "y": "Score de Santé"}
+        title=f"Tendance du Score de Santé du Fabricant {manufacturer_id}",
+        labels={"period": "Période", "score": "Score de Santé"}
     )
     fig_health.update_layout(yaxis_tickformat='.1%')
     st.plotly_chart(fig_health, use_container_width=True)
 
-# Affiche des tableaux de données (repliables)
+# Données brutes
 with st.expander("Voir les Données Brutes"):
     tab1, tab2 = st.tabs(["Données des Produits", "Données des Accords de Vente"])
-    
     with tab1:
         st.dataframe(product_df.head(50))
-    
     with tab2:
         st.dataframe(sale_df.head(50))
 
-# Ajoute des annotations et des explications
+# Documentation
 st.markdown("""
 ### Explication des KPI
-
 1. **Nombre d'Acteurs du Marché**: Nombre de fabricants actifs sur le marché pour une catégorie de produit spécifique.
 2. **Nombre Moyen de Produits/Fabricant**: Nombre moyen de produits qu'un fabricant propose dans une catégorie spécifique.
 3. **Score de Santé du Fabricant**: Proportion moyenne des produits d'un fabricant parmi tous les produits d'une catégorie dans les 10 premiers magasins.
@@ -343,6 +284,6 @@ st.markdown("""
 - Période d'analyse: 1er janvier 2022 au 31 décembre 2022
 """)
 
-# Ajoute un pied de page
+# Pied de page
 st.markdown("---")
-st.markdown("© 2025 Projet d'Analyse de la Santé des Fabricants sur le Marché | Auteur: XXX") 
+st.markdown("© 2025 Projet d'Analyse de la Santé des Fabricants sur le Marché | Auteur: XXX")
