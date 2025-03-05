@@ -299,12 +299,12 @@ st.header("Indicateurs de Performance Clés (KPIs)")
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    # Calcule le nombre d'acteurs du marché pour la catégorie 5
+    # Calcule le nombre d'acteurs du marché pour la catégorie sélectionnée
     actor_count = processor.count_market_actors_by_category(category_id)
     st.metric(
         label=f"Nombre d'Acteurs du Marché - Catégorie {category_id}",
-        value=actor_count,
-        delta="+2 par rapport au mois dernier",  # Dans une application réelle, cela serait calculé
+        value=f"{actor_count}",
+        delta=None,
         delta_color="normal"
     )
 
@@ -334,22 +334,25 @@ with col3:
         (processor.product_df['fabID'] == manufacturer_id)
     ]
     
+    # Ajouter des prints pour le débogage
+    print(f"\n=== Détails du Score de Santé ===")
+    print(f"Fabricant ID: {manufacturer_id}")
+    print(f"Catégorie ID: {category_id}")
+    print(f"Nombre d'accords de vente dans la catégorie: {len(category_sales)}")
+    print(f"Nombre de produits du fabricant: {len(manufacturer_products)}")
+    
     if len(category_sales) == 0:
+        print("❌ Aucun accord de vente trouvé pour cette catégorie")
         st.error(f"❌ Aucun accord de vente trouvé pour la catégorie {category_id}")
         health_score = 0.0
     elif len(manufacturer_products) == 0:
+        print(f"⚠️ Le fabricant {manufacturer_id} n'a pas de produits dans la catégorie {category_id}")
         st.warning(f"⚠️ Le fabricant {manufacturer_id} n'a pas de produits dans la catégorie {category_id}")
         health_score = 0.0
     else:
         # Calcule le score de santé du fabricant
         health_score = processor.manufacturer_health_score(manufacturer_id, category_id)
-        
-        # Ajouter des détails sur le calcul
-        st.sidebar.write(f"\n**Détails du Score de Santé:**")
-        st.sidebar.write(f"- Fabricant: {manufacturer_id}")
-        st.sidebar.write(f"- Catégorie: {category_id}")
-        st.sidebar.write(f"- Produits du fabricant: {len(manufacturer_products)}")
-        st.sidebar.write(f"- Accords de vente dans la catégorie: {len(category_sales)}")
+        print(f"Score de Santé calculé: {health_score:.2%}")
     
     st.metric(
         label=f"Score de Santé du Fabricant {manufacturer_id}",
@@ -362,23 +365,39 @@ with col3:
 st.header(f"Top 10 des Magasins")
 top_stores = processor.top_stores(10)
 
-# Ajouter des informations détaillées de débogage sur les magasins
-st.sidebar.write("\n**Analyse Détaillée des Top Magasins:**")
+# Forcer le vidage du buffer et ajouter des séparateurs visuels
+print("\n" + "="*80)
+print("🏆 TOP 10 DES MAGASINS PAR NOMBRE D'ACCORDS DE VENTE".center(80))
+print("="*80 + "\n")
 
-# Afficher le nombre total de magasins
+# Statistiques globales
 total_stores = processor.sale_df['magID'].nunique()
-st.sidebar.write(f"Nombre total de magasins: {total_stores}")
-
-# Afficher le nombre total d'accords de vente
 total_agreements = len(processor.sale_df)
-st.sidebar.write(f"Nombre total d'accords de vente: {total_agreements}")
+store_counts = processor.sale_df['magID'].value_counts().head(10)
 
-# Afficher les détails des top 10 magasins
-st.sidebar.write("\nTop 10 magasins par nombre d'accords:")
-store_counts = processor.sale_df['magID'].value_counts()
-for magID, count in store_counts.head(10).items():
+print("📊 STATISTIQUES GLOBALES:")
+print(f"- Nombre total de magasins: {total_stores}")
+print(f"- Nombre total d'accords de vente: {total_agreements}\n")
+
+# En-tête du tableau
+print("📈 CLASSEMENT DÉTAILLÉ:")
+print("-"*80)
+print(f"| {'RANG':^6} | {'MAGASIN ID':^12} | {'ACCORDS':^12} | {'% DU TOTAL':^15} | {'CUMUL %':^15} |")
+print("-"*80)
+
+# Afficher chaque magasin avec des statistiques cumulatives
+cumulative_percentage = 0
+for rank, (magID, count) in enumerate(store_counts.items(), 1):
     percentage = (count / total_agreements) * 100
-    st.sidebar.write(f"Magasin {magID}: {count} accords ({percentage:.1f}% du total)")
+    cumulative_percentage += percentage
+    print(f"| {rank:^6d} | {magID:^12d} | {count:^12d} | {percentage:^15.2f} | {cumulative_percentage:^15.2f} |")
+    sys.stdout.flush()
+    time.sleep(0.1)  # Petit délai pour assurer l'affichage
+
+print("-"*80)
+print(f"\nLes top 10 magasins représentent {cumulative_percentage:.2f}% du total des accords de vente")
+print("="*80 + "\n")
+sys.stdout.flush()
 
 # Crée un graphique à barres
 fig_stores = px.bar(
@@ -458,4 +477,4 @@ st.markdown("""
 
 # Ajoute un pied de page
 st.markdown("---")
-st.markdown("© 2025 Projet d'Analyse de la Santé des Fabricants sur le Marché | Auteur: XXX") 
+st.markdown("© 2025 Projet d'Analyse de la Santé des Fabricants sur le Marché | Auteur: XXX")
