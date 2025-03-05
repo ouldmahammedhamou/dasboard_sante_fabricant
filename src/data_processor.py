@@ -31,37 +31,26 @@ class DataProcessor:
         """
         self.product_df = product_df
         self.sale_df = sale_df
-        self._update_data_cache()
-    
-    def _update_data_cache(self) -> None:
-        """Met à jour le cache de données interne avec des calculs préliminaires"""
-        # Pré-calcul des données fréquemment utilisées
-        if self.product_df is not None and not self.product_df.empty:
-            self.product_categories = sorted(self.product_df['catID'].unique())
-            self.manufacturers = sorted(self.product_df['fabID'].unique())
-            
-        if self.sale_df is not None and not self.sale_df.empty:
-            self.stores = sorted(self.sale_df['magID'].unique())
     
     def get_date_from_id(self, date_id: int) -> datetime:
         """
-        Convertit un ID de date en objet datetime (implémentation d'exemple, à ajuster selon le format réel de l'ID de date)
+        Convertit un ID de date en objet datetime
         
         Paramètres:
-            date_id: ID de date
+            date_id: ID de date au format YYYYMMDD
             
         Retourne:
             Objet datetime
         """
-        # Supposons que l'ID de date est un décalage en jours à partir d'une date spécifique
-        # Dans une application réelle, cela doit être ajusté selon le format réel de l'ID de date
-        base_date = datetime(2022, 1, 1)  # Supposons que la date de référence est le 1er janvier 2022
-        days_offset = date_id - 1  # Supposons que l'ID commence à 1
-        return base_date + pd.Timedelta(days=days_offset)
+        date_str = str(date_id)
+        year = int(date_str[:4])
+        month = int(date_str[4:6])
+        day = int(date_str[6:8])
+        return datetime(year, month, day)
     
     def add_date_column(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Ajoute une colonne 'date' au DataFrame à partir de la colonne 'dateID'
+        Ajoute une colonne 'date' au DataFrame à partir de la colonne 'date_id'
         
         Paramètres:
             df: DataFrame à modifier
@@ -79,10 +68,10 @@ class DataProcessor:
         # Créer une copie pour éviter les warnings de SettingWithCopyWarning
         result_df = df.copy()
         
-        # Si dateID est au format YYYYMMDD (ex: 20220101)
-        if 'dateID' in result_df.columns and isinstance(result_df['dateID'].iloc[0], (str, int)) and str(result_df['dateID'].iloc[0]).isdigit():
+        # Si date_id est au format YYYYMMDD (ex: 20220101)
+        if 'date_id' in result_df.columns and isinstance(result_df['date_id'].iloc[0], (str, int)) and str(result_df['date_id'].iloc[0]).isdigit():
             try:
-                date_strings = result_df['dateID'].astype(str)
+                date_strings = result_df['date_id'].astype(str)
                 
                 # Vérifier si nous avons un format YYYYMMDD (8 chiffres)
                 if date_strings.str.len().max() == 8:
@@ -92,29 +81,29 @@ class DataProcessor:
             except Exception as e:
                 print(f"Erreur lors de la conversion du format YYYYMMDD: {e}")
         
-        # Si dateID est une chaîne de caractères au format YYYY-MM-DD
-        if 'dateID' in result_df.columns and isinstance(result_df['dateID'].iloc[0], str):
+        # Si date_id est une chaîne de caractères au format YYYY-MM-DD
+        if 'date_id' in result_df.columns and isinstance(result_df['date_id'].iloc[0], str):
             try:
-                result_df['date'] = pd.to_datetime(result_df['dateID'])
+                result_df['date'] = pd.to_datetime(result_df['date_id'])
                 result_df['month'] = result_df['date'].dt.month
                 return result_df
             except Exception as e:
-                print(f"Erreur lors de la conversion de dateID en date: {e}")
+                print(f"Erreur lors de la conversion de date_id en date: {e}")
         
-        # Si dateID est un entier représentant un jour de l'année
-        if 'dateID' in result_df.columns and (isinstance(result_df['dateID'].iloc[0], int) or 
-                                             isinstance(result_df['dateID'].iloc[0], float)):
+        # Si date_id est un entier représentant un jour de l'année
+        if 'date_id' in result_df.columns and (isinstance(result_df['date_id'].iloc[0], int) or 
+                                             isinstance(result_df['date_id'].iloc[0], float)):
             try:
-                # Convertir les dateID (jour de l'année) en dates complètes pour 2022
-                # Exemple: dateID=1 -> 2022-01-01, dateID=32 -> 2022-02-01
+                # Convertir les date_id (jour de l'année) en dates complètes pour 2022
+                # Exemple: date_id=1 -> 2022-01-01, date_id=32 -> 2022-02-01
                 base_date = datetime(2022, 1, 1)
-                result_df['date'] = result_df['dateID'].apply(
+                result_df['date'] = result_df['date_id'].apply(
                     lambda x: base_date + pd.Timedelta(days=int(x)-1)
                 )
                 result_df['month'] = result_df['date'].dt.month
                 return result_df
             except Exception as e:
-                print(f"Erreur lors de la conversion de dateID (entier) en date: {e}")
+                print(f"Erreur lors de la conversion de date_id (entier) en date: {e}")
                 
         # Si aucune conversion n'a fonctionné, retourner le DataFrame original
         print("Avertissement: Impossible d'ajouter une colonne de date.")
@@ -122,7 +111,7 @@ class DataProcessor:
     
     def count_market_actors_by_category(self, category_id: int) -> int:
         """
-        Calcule le nombre d'acteurs du marché pour une catégorie spécifique (Question 1.1)
+        Calcule le nombre d'acteurs du marché pour une catégorie spécifique
         
         Paramètres:
             category_id: ID de la catégorie de produit
@@ -134,14 +123,14 @@ class DataProcessor:
             raise ValueError("DataFrame de produits non défini")
         
         # Filtre les produits de la catégorie spécifique
-        category_products = self.product_df[self.product_df['catID'] == category_id]
+        category_products = self.product_df[self.product_df['cat_id'] == category_id]
         
         # Calcule le nombre de fabricants distincts
-        return category_products['fabID'].nunique()
+        return category_products['fab_id'].nunique()
     
     def avg_products_per_manufacturer_by_category(self, category_id: int) -> float:
         """
-        Calcule le nombre moyen de produits par fabricant pour une catégorie spécifique (Question 1.2)
+        Calcule le nombre moyen de produits par fabricant pour une catégorie spécifique
         
         Paramètres:
             category_id: ID de la catégorie de produit
@@ -153,13 +142,13 @@ class DataProcessor:
             raise ValueError("DataFrame de produits non défini")
         
         # Filtre les produits de la catégorie spécifique
-        category_products = self.product_df[self.product_df['catID'] == category_id]
+        category_products = self.product_df[self.product_df['cat_id'] == category_id]
         
         if category_products.empty:
             return 0.0
             
         # Pour chaque fabricant, calcule le nombre de produits
-        products_per_manufacturer = category_products.groupby('fabID').size()
+        products_per_manufacturer = category_products.groupby('fab_id').size()
         
         # Si aucun fabricant n'est trouvé
         if len(products_per_manufacturer) == 0:
@@ -170,7 +159,7 @@ class DataProcessor:
     
     def top_stores(self, n: int = 10) -> pd.DataFrame:
         """
-        Identifie les N premiers magasins (Question 1.3)
+        Identifie les N premiers magasins
         Ici, nous définissons "top N magasins" comme ceux ayant le plus grand nombre d'accords de vente
         
         Paramètres:
@@ -183,8 +172,8 @@ class DataProcessor:
             raise ValueError("DataFrame d'accords de vente non défini")
         
         # Calcule le nombre d'accords de vente pour chaque magasin
-        store_counts = self.sale_df['magID'].value_counts().reset_index()
-        store_counts.columns = ['magID', 'agreement_count']
+        store_counts = self.sale_df['mag_id'].value_counts().reset_index()
+        store_counts.columns = ['mag_id', 'agreement_count']
         
         # Retourne les N premiers magasins
         return store_counts.head(n)
@@ -206,8 +195,8 @@ class DataProcessor:
             
         # Vérifier si le fabricant a des produits dans cette catégorie
         manufacturer_products = self.product_df[
-            (self.product_df['catID'] == category_id) & 
-            (self.product_df['fabID'] == manufacturer_id)
+            (self.product_df['cat_id'] == category_id) & 
+            (self.product_df['fab_id'] == manufacturer_id)
         ]
         
         if len(manufacturer_products) == 0:
@@ -215,12 +204,12 @@ class DataProcessor:
             
         # Obtient les N premiers magasins basés sur le nombre total d'accords de vente
         top_stores_df = self.top_stores(top_n_stores)
-        top_store_ids = top_stores_df['magID'].tolist()
+        top_store_ids = top_stores_df['mag_id'].tolist()
         
         # Filtre les accords de vente pour la catégorie spécifique et ces magasins
         category_sales = self.sale_df[
-            (self.sale_df['catID'] == category_id) & 
-            (self.sale_df['magID'].isin(top_store_ids))
+            (self.sale_df['cat_id'] == category_id) & 
+            (self.sale_df['mag_id'].isin(top_store_ids))
         ]
         
         if len(category_sales) == 0:
@@ -229,77 +218,100 @@ class DataProcessor:
         # Calcule le score pour chaque magasin
         store_scores = []
         for store_id in top_store_ids:
-            store_sales = category_sales[category_sales['magID'] == store_id]
+            store_sales = category_sales[category_sales['mag_id'] == store_id]
             
             if len(store_sales) == 0:
                 store_scores.append(0.0)
                 continue
                 
             # Nombre total de produits uniques dans ce magasin pour cette catégorie
-            total_products = store_sales['prodID'].nunique()
+            total_products = store_sales['prod_id'].nunique()
             
             # Nombre de produits uniques de ce fabricant dans ce magasin pour cette catégorie
             manufacturer_products = store_sales[
-                store_sales['fabID'] == manufacturer_id
-            ]['prodID'].nunique()
+                store_sales['fab_id'] == manufacturer_id
+            ]['prod_id'].nunique()
             
             # Calcule le score pour ce magasin
             store_score = manufacturer_products / total_products if total_products > 0 else 0.0
             store_scores.append(store_score)
         
         # Retourne la moyenne des scores de tous les magasins
-        return np.mean(store_scores) if store_scores else 0.0
+        return sum(store_scores) / len(store_scores) if store_scores else 0.0
     
     def market_actors_over_time(self, category_id: int, start_date: datetime, end_date: datetime, 
                                freq: str = 'M') -> pd.DataFrame:
         """
-        Calcule l'évolution du nombre d'acteurs du marché pour une catégorie spécifique sur une période (Question 2.1)
+        Analyse l'évolution des acteurs du marché au fil du temps pour une catégorie spécifique
         
         Paramètres:
             category_id: ID de la catégorie de produit
-            start_date: Date de début
-            end_date: Date de fin
-            freq: Fréquence temporelle ('M' pour mensuel, 'W' pour hebdomadaire, etc.)
+            start_date: Date de début de l'analyse
+            end_date: Date de fin de l'analyse
+            freq: Fréquence d'agrégation ('D' pour jour, 'W' pour semaine, 'M' pour mois)
             
         Retourne:
-            DataFrame contenant le temps et le nombre d'acteurs
+            DataFrame avec le nombre d'acteurs par période
         """
         if self.product_df is None:
             raise ValueError("DataFrame de produits non défini")
+            
+        # S'assurer que nous avons une colonne de date
+        product_df_with_date = self.add_date_column(self.product_df)
         
-        # Ajoute une colonne de date
-        df_with_dates = self.add_date_column(self.product_df)
-        
-        # Filtre les produits pour la catégorie spécifique et la plage de temps
-        filtered_df = df_with_dates[
-            (df_with_dates['catID'] == category_id) & 
-            (df_with_dates['date'] >= start_date) & 
-            (df_with_dates['date'] <= end_date)
+        # Filtrer par catégorie et plage de dates
+        filtered_products = product_df_with_date[
+            (product_df_with_date['cat_id'] == category_id) &
+            (product_df_with_date['date'] >= start_date) &
+            (product_df_with_date['date'] <= end_date)
         ]
         
-        # Crée des périodes de temps
-        time_periods = pd.date_range(start=start_date, end=end_date, freq=freq)
+        if filtered_products.empty:
+            return pd.DataFrame(columns=['period', 'manufacturer_count'])
+            
+        # Grouper par période et compter les fabricants uniques
+        # Créer une colonne de période basée sur la fréquence spécifiée
+        if freq == 'D':
+            filtered_products['period'] = filtered_products['date'].dt.date
+        elif freq == 'W':
+            filtered_products['period'] = filtered_products['date'].dt.to_period('W').dt.start_time
+        else:  # default to 'M'
+            filtered_products['period'] = filtered_products['date'].dt.to_period('M').dt.start_time
+            
+        # Grouper et compter
+        result = filtered_products.groupby('period')['fab_id'].nunique().reset_index()
+        result.columns = ['period', 'manufacturer_count']
         
-        # Calcule le nombre d'acteurs pour chaque période
-        results = []
-        for i in range(len(time_periods) - 1):
-            period_start = time_periods[i]
-            period_end = time_periods[i+1]
-            
-            period_data = filtered_df[
-                (filtered_df['date'] >= period_start) & 
-                (filtered_df['date'] < period_end)
-            ]
-            
-            actor_count = period_data['fabID'].nunique()
-            
-            results.append({
-                'period_start': period_start,
-                'period_end': period_end,
-                'actor_count': actor_count
-            })
+        return result
+    
+    def manufacturer_share_in_category(self, manufacturer_id: int, category_id: int) -> float:
+        """
+        Calcule la part de marché d'un fabricant dans une catégorie spécifique
         
-        return pd.DataFrame(results)
+        Paramètres:
+            manufacturer_id: ID du fabricant
+            category_id: ID de la catégorie de produit
+            
+        Retourne:
+            Proportion des produits du fabricant parmi tous les produits de la catégorie
+        """
+        if self.product_df is None:
+            return 0.0
+            
+        # Filtrer les produits de la catégorie
+        category_products = self.product_df[self.product_df['cat_id'] == category_id]
+        
+        if category_products.empty:
+            return 0.0
+            
+        # Compter les produits totaux et les produits du fabricant
+        total_products = category_products['prod_id'].nunique()
+        manufacturer_products = category_products[
+            category_products['fab_id'] == manufacturer_id
+        ]['prod_id'].nunique()
+        
+        # Calculer la proportion
+        return manufacturer_products / total_products if total_products > 0 else 0.0
 
 # Code de test
 if __name__ == "__main__":
@@ -318,7 +330,7 @@ if __name__ == "__main__":
         'catID': [5, 5, 5, 5, 10, 10, 5, 5, 5, 10],
         'fabID': [1, 1, 2, 2, 3, 3, 1, 4, 4, 5],
         'magID': [1, 2, 1, 3, 2, 4, 5, 1, 2, 3],
-        'dateID': [1, 5, 10, 15, 20, 25, 30, 35, 40, 45]
+        'dateID': [1, 5, 10, 15, 20, 25, 30, 35, 40, 45]    
     }
     
     product_df = pd.DataFrame(product_data)

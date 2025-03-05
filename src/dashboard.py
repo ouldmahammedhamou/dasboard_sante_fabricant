@@ -6,16 +6,17 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import sys
 import os
-import time
+import json
+from typing import Dict, List, Tuple, Optional, Any
 
 # Ajoute le répertoire src au chemin Python
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # Importe les modules personnalisés
-from data_fetcher import DataFetcher
+from db_handler import PostgresHandler
 from data_processor import DataProcessor
 
 # Configuration de la page
@@ -25,437 +26,525 @@ st.set_page_config(
     layout="wide"
 )
 
-# Titre du tableau de bord
-st.title("📊 Tableau de Bord - Santé des Fabricants sur le Marché")
-
-# Description du tableau de bord
+# Définir le style global
 st.markdown("""
-Ce tableau de bord présente les indicateurs de santé des fabricants sur le marché pour différentes catégories de produits.
-En analysant les indicateurs de performance clés (KPIs), vous pouvez comprendre la position de leadership des fabricants sur le marché.
-""")
+<style>
+    .main-header {
+        font-size: 2.5rem;
+        color: #1E88E5;
+        text-align: center;
+    }
+    .sub-header {
+        font-size: 1.5rem;
+        color: #0277BD;
+    }
+    .metric-card {
+        background-color: #f0f2f6;
+        border-radius: 10px;
+        padding: 20px;
+        box-shadow: 2px 2px 10px rgba(0,0,0,0.1);
+    }
+    .success-metric {
+        color: #00C853;
+        font-weight: bold;
+    }
+    .warning-metric {
+        color: #FF9800;
+        font-weight: bold;
+    }
+    .danger-metric {
+        color: #F44336;
+        font-weight: bold;
+    }
+    .info-box {
+        background-color: #E3F2FD;
+        border-left: 5px solid #2196F3;
+        padding: 10px;
+        border-radius: 5px;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-# Initialise le récupérateur de données et le processeur
-@st.cache_resource
 def initialize_data_processor():
-    """Initialise le processeur de données et le récupérateur"""
-    # Crée le récupérateur et le processeur
-    fetcher = DataFetcher()
-    processor = DataProcessor()
-    return fetcher, processor
+    """Initialise le processeur de données"""
+    return DataProcessor()
 
-fetcher, processor = initialize_data_processor()
+def initialize_db_handler():
+    """Initialise la connexion à la base de données PostgreSQL"""
+    db = PostgresHandler()
+    try:
+        db.connect()
+        return db
+    except Exception as e:
+        st.sidebar.error(f"❌ Erreur de connexion à la base de données: {e}")
+        return None
 
-# Crée le répertoire cache s'il n'existe pas
-if not os.path.exists("cache"):
-    os.makedirs("cache")
-
-# Filtres de la barre latérale
-st.sidebar.header("Filtres")
-
-# Ajoute un sélecteur de source de données
-data_source = st.sidebar.radio(
-    "Source de données",
-    options=["Données en cache", "Données des fichiers de test", "Données API en temps réel"],
-    index=0
-)
-
-# Ajoute un bouton de rafraîchissement des données
-if st.sidebar.button("🔄 Rafraîchir les données"):
-    # Efface le cache et redémarre l'application
-    st.cache_data.clear()
-    st.rerun()
-
-# Fonction pour charger les données depuis l'API
-def load_data_from_api():
+def load_data_from_test_file(file_path: str, data_type: str) -> pd.DataFrame:
     """
-    Charge les données directement depuis l'API
+    Charge les données à partir d'un fichier de test
     
+    Paramètres:
+        file_path: Chemin du fichier
+        data_type: Type de données ('product' ou 'sale')
+        
     Retourne:
-        Tuple contenant les DataFrames des produits et des accords de vente
+        DataFrame avec les données chargées
     """
     try:
-        st.sidebar.info("⏳ Chargement des données depuis l'API en cours...")
+        # Lire le fichier JSON ligne par ligne
+        records = []
+        with open(file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line:  # Ignorer les lignes vides
+                    try:
+                        record = json.loads(line)
+                        records.append(record)
+                    except json.JSONDecodeError:
+                        st.sidebar.warning(f"⚠️ Ligne ignorée dans {file_path}: {line[:50]}...")
         
-        # Récupérer un nombre limité de logs pour la démonstration
-        product_logs = fetcher.get_multiple_product_logs(1, 1000000)
-        sale_logs = fetcher.get_multiple_sale_logs(1, 1000000)
-        
-        if not product_logs or not sale_logs:
-            st.sidebar.warning("⚠️ Aucune donnée trouvée dans l'API, utilisation des données d'exemple.")
-            return None, None
+        if not records:
+            return pd.DataFrame()
             
-        # Convertir les logs en DataFrames
-        product_df = fetcher.convert_logs_to_dataframe(product_logs, 'product')
-        sale_df = fetcher.convert_logs_to_dataframe(sale_logs, 'sale')
+        df = pd.DataFrame(records)
         
-        st.sidebar.success("✅ Données chargées depuis l'API")
+        # Renommer les colonnes
+        if data_type == 'product':
+            column_map = {
+                'logID': 'log_id',
+                'prodID': 'prod_id',
+                'catID': 'cat_id',
+                'fabID': 'fab_id',
+                'dateID': 'date_id'
+            }
+        else:  # sale
+            column_map = {
+                'logID': 'log_id',
+                'prodID': 'prod_id',
+                'catID': 'cat_id',
+                'fabID': 'fab_id',
+                'magID': 'mag_id',
+                'dateID': 'date_id'
+            }
+        
+        df = df.rename(columns=column_map)
+        
+        # Ajouter la colonne de date formatée
+        df['date_formatted'] = pd.to_datetime(df['date_id'].astype(str), format='%Y%m%d')
+        
+        return df
+    except Exception as e:
+        st.sidebar.error(f"❌ Erreur lors du chargement du fichier {file_path}: {e}")
+        return pd.DataFrame()
+
+def load_data_from_database():
+    """Charge les données directement depuis la base de données sans mise en cache"""
+    try:
+        # Initialiser la connexion à la base de données
+        db = initialize_db_handler()
+        if db is None:
+            return pd.DataFrame(), pd.DataFrame()
+        
+        # Récupérer les données
+        product_df = db.get_products_dataframe()
+        sale_df = db.get_sales_dataframe()
+        
+        st.sidebar.success(f"✅ Données chargées depuis la base de données")
+        
         return product_df, sale_df
     except Exception as e:
-        st.sidebar.error(f"❌ Erreur lors du chargement depuis l'API: {e}")
-        return None, None
+        st.sidebar.error(f"❌ Erreur lors du chargement des données: {e}")
+        return pd.DataFrame(), pd.DataFrame()
 
-# Charge des données avec stratégie de cache
-@st.cache_data(ttl=3600)  # Cache pendant une heure
-def load_data_with_cache():
-    """
-    Charge les données avec une stratégie de cache multi-niveaux:
-    1. Essaie de charger depuis l'API
-    2. Essaie de charger depuis le cache fichier
-    3. Essaie de charger depuis les fichiers de test
-    4. Génère des données d'exemple en cas d'échec
+def main():
+    """Fonction principale qui gère l'interface du tableau de bord"""
     
-    Retourne:
-        Tuple contenant les DataFrames des produits et des accords de vente
-    """
-    # 1. Essaie de charger depuis l'API
-    try:
-        st.sidebar.info("⏳ Tentative de chargement depuis l'API...")
+    # Titre principal
+    st.markdown('<h1 class="main-header">Tableau de Bord de l\'analyse de Marché</h1>', unsafe_allow_html=True)
+    
+    # Barre latérale pour les contrôles
+    st.sidebar.title("Contrôles")
+    
+    # Section de sélection de source de données
+    st.sidebar.header("Source de données")
+    data_source = st.sidebar.radio(
+        "Sélectionner la source de données",
+        options=["Base de données", "Fichier de test"],
+        index=0
+    )
+    
+    # Initialiser le processeur de données
+    processor = initialize_data_processor()
+    
+    # Charger les données selon la source sélectionnée
+    if data_source == "Base de données":
+        product_df, sale_df = load_data_from_database()
+        if product_df.empty or sale_df.empty:
+            st.error("❌ Impossible de charger les données depuis la base de données. Veuillez vérifier la connexion.")
+            return
+    else:  # Fichier de test
+        # Sélecteur de fichiers de test
+        test_product_file = st.sidebar.text_input("Fichier de données produits", "data/test_products.jsonl")
+        test_sale_file = st.sidebar.text_input("Fichier de données ventes", "data/test_sales.jsonl")
         
-        # Récupérer des logs (augmenter la plage pour plus de données)
-        product_logs = fetcher.get_multiple_product_logs(1, 1000000)
-        sale_logs = fetcher.get_multiple_sale_logs(1, 1000000)
+        # Charger les données depuis les fichiers de test
+        product_df = load_data_from_test_file(test_product_file, "product")
+        sale_df = load_data_from_test_file(test_sale_file, "sale")
         
-        if product_logs and sale_logs:
-            # Convertir les logs en DataFrames
-            product_df = fetcher.convert_logs_to_dataframe(product_logs, 'product')
-            sale_df = fetcher.convert_logs_to_dataframe(sale_logs, 'sale')
+        if product_df.empty or sale_df.empty:
+            st.error("❌ Impossible de charger les données depuis les fichiers de test. Veuillez vérifier les chemins des fichiers.")
+            return
             
-            # Sauvegarder dans le cache pour une utilisation future
-            cache_dir = "cache"
-            if not os.path.exists(cache_dir):
-                os.makedirs(cache_dir)
-                
-            product_cache = f"{cache_dir}/product_data.csv"
-            sale_cache = f"{cache_dir}/sale_data.csv"
-            
-            fetcher.save_data_to_cache(product_df, product_cache)
-            fetcher.save_data_to_cache(sale_df, sale_cache)
-            
-            st.sidebar.success("✅ Données chargées depuis l'API et mises en cache")
-            return product_df, sale_df
-    except Exception as e:
-        st.sidebar.warning(f"⚠️ Impossible de charger depuis l'API: {e}")
+        st.sidebar.info("ℹ️ Utilisation de données depuis les fichiers de test.")
     
-    # 2. Essaie de charger depuis le cache fichier
-    try:
-        cache_dir = "cache"
-        product_cache = f"{cache_dir}/product_data.csv"
-        sale_cache = f"{cache_dir}/sale_data.csv"
+    # Mettre à jour le processeur de données avec les données chargées
+    processor.set_dataframes(product_df, sale_df)
+    
+    # Information sur les données
+    st.sidebar.subheader("Information sur les données")
+    info_text = f"📊 Produits: {len(product_df)} enregistrements\n"
+    info_text += f"🛒 Accords de vente: {len(sale_df)} enregistrements"
+    st.sidebar.info(info_text)
+    
+    # Obtenir les valeurs uniques pour les filtres
+    if not product_df.empty:
+        categories = sorted(product_df['cat_id'].unique())
+        manufacturers = sorted(product_df['fab_id'].unique())
         
-        product_df = fetcher.load_data_from_cache(product_cache)
-        sale_df = fetcher.load_data_from_cache(sale_cache)
+        # Filtres dans la barre latérale
+        st.sidebar.header("Filtres")
+        selected_category = st.sidebar.selectbox("Catégorie", categories, index=0)
+        selected_manufacturer = st.sidebar.selectbox("Fabricant", manufacturers, index=0)
         
-        if product_df is not None and sale_df is not None:
-            st.sidebar.success("✅ Données chargées depuis le cache")
-            return product_df, sale_df
-    except Exception as e:
-        st.sidebar.info(f"⚠️ Impossible de charger depuis le cache: {e}")
-    
-    # 3. Essaie de charger depuis les fichiers de test
-    try:
-        product_file_path = "data_test/produits-tous/produits-tous.orig"
-        sale_file_path = "data_test/pointsDeVente-tous/pointsDeVente-tous"
-        
-        if os.path.exists(product_file_path) and os.path.exists(sale_file_path):
-            product_df = fetcher.load_test_data_from_text_file(product_file_path, 'product')
-            sale_df = fetcher.load_test_data_from_text_file(sale_file_path, 'sale')
-            
-            # Sauvegarde dans le cache
-            cache_dir = "cache"
-            if not os.path.exists(cache_dir):
-                os.makedirs(cache_dir)
-                
-            product_cache = f"{cache_dir}/product_data.csv"
-            sale_cache = f"{cache_dir}/sale_data.csv"
-            
-            fetcher.save_data_to_cache(product_df, product_cache)
-            fetcher.save_data_to_cache(sale_df, sale_cache)
-            
-            st.sidebar.success("✅ Données chargées depuis les fichiers de test et mises en cache")
-            return product_df, sale_df
-    except Exception as e:
-        st.sidebar.info(f"⚠️ Impossible de charger depuis les fichiers de test: {e}")
-    
-    # 4. Génère des données d'exemple
-    st.sidebar.warning("⚠️ Utilisation des données d'exemple générées")
-    
-    # Définir des catégories réalistes
-    categories = [1, 2, 3, 4, 5]  # Catégories de 1 à 5
-    n_records = 1000  # Plus de données pour un meilleur exemple
-    
-    # Données d'exemple générées
-    product_data = {
-        'logID': list(range(1, n_records + 1)),
-        'prodID': list(range(101, n_records + 101)),
-        'catID': np.random.choice(categories, n_records),
-        'fabID': np.random.choice(list(range(1, 21)), n_records),
-        'dateID': np.random.choice(list(range(1, 366)), n_records)
-    }
-    
-    # Données d'exemple pour les accords de vente
-    sale_data = {
-        'logID': list(range(1, n_records + 1)),
-        'prodID': list(range(101, n_records + 101)),
-        'catID': np.random.choice(categories, n_records),  # Utiliser les mêmes catégories
-        'fabID': np.random.choice(list(range(1, 21)), n_records),
-        'magID': np.random.choice(list(range(1, 31)), n_records),  # 30 magasins
-        'dateID': np.random.choice(list(range(1, 366)), n_records)
-    }
-    
-    product_df = pd.DataFrame(product_data)
-    sale_df = pd.DataFrame(sale_data)
-    
-    return product_df, sale_df
-
-# Charge les données en fonction de la source sélectionnée
-if data_source == "Données API en temps réel":
-    product_df, sale_df = load_data_from_api()
-    if product_df is None or sale_df is None:
-        # Si l'API échoue, utiliser les données mises en cache
-        product_df, sale_df = load_data_with_cache()
-elif data_source == "Données des fichiers de test":
-    try:
-        product_file_path = "data_test/produits-tous/produits-tous.orig"
-        sale_file_path = "data_test/pointsDeVente-tous/pointsDeVente-tous"
-        
-        if os.path.exists(product_file_path) and os.path.exists(sale_file_path):
-            product_df = fetcher.load_test_data_from_text_file(product_file_path, 'product')
-            sale_df = fetcher.load_test_data_from_text_file(sale_file_path, 'sale')
-            st.sidebar.success("✅ Données chargées depuis les fichiers de test")
+        # Filtrer par date
+        if 'date_formatted' in product_df.columns and len(product_df['date_formatted']) > 0 and not product_df['date_formatted'].isna().all():
+            try:
+                date_min = product_df['date_formatted'].min()
+                date_max = product_df['date_formatted'].max()
+                 
+                if hasattr(date_min, 'date'):
+                    min_date = date_min.date()
+                else:
+                    min_date = date_min
+                    
+                if hasattr(date_max, 'date'):
+                    max_date = date_max.date()
+                else:
+                    max_date = date_max
+            except (AttributeError, ValueError, TypeError) as e:
+                st.sidebar.warning(f"Erreur lors du traitement des dates: {e}. Utilisation des dates par défaut.")
+                min_date = date(2022, 1, 1)
+                max_date = date(2022, 12, 31)
         else:
-            st.sidebar.warning("⚠️ Fichiers de test non trouvés, utilisation des données en cache")
-            product_df, sale_df = load_data_with_cache()
-    except Exception as e:
-        st.sidebar.error(f"❌ Erreur lors du chargement depuis les fichiers de test: {e}")
-        product_df, sale_df = load_data_with_cache()
-else:
-    # Par défaut, charger les données mises en cache
-    product_df, sale_df = load_data_with_cache()
+            min_date = date(2022, 1, 1)
+            max_date = date(2022, 12, 31)
 
-# Mettre à jour le processeur avec les nouvelles données
-processor.set_dataframes(product_df, sale_df)
-
-# Ajoute un sélecteur d'ID de fabricant dans la barre latérale
-manufacturer_id = st.sidebar.number_input("ID du Fabricant", min_value=1, max_value=1000000, value=1664)
-
-# Ajoute un sélecteur de catégorie
-st.sidebar.write("\n**Catégories Disponibles:**")
-available_categories = sorted(product_df['catID'].unique())
-
-if len(available_categories) == 0:
-    st.error("❌ Aucune catégorie trouvée dans les données.")
-else:
-    # Afficher un résumé des données
-    st.sidebar.write("📊 **Résumé des Données:**")
-    total_products = len(product_df)
-    total_sales = len(sale_df)
-    st.sidebar.write(f"Nombre total de produits: {total_products}")
-    st.sidebar.write(f"Nombre total d'accords de vente: {total_sales}")
-    
-    # Afficher les statistiques par catégorie
-    st.sidebar.write("\n**Statistiques par Catégorie:**")
-    category_counts = {}
-    for cat in available_categories:
-        products_in_cat = len(product_df[product_df['catID'] == cat])
-        sales_in_cat = len(sale_df[sale_df['catID'] == cat])
-        category_counts[cat] = sales_in_cat
-        st.sidebar.write(f"Catégorie {cat}:")
-        st.sidebar.write(f"  - Produits: {products_in_cat}")
-        st.sidebar.write(f"  - Accords de vente: {sales_in_cat}")
-
-    # Sélectionner la catégorie avec le plus d'accords de vente comme défaut
-    default_category = max(category_counts.items(), key=lambda x: x[1])[0]
-    category_id = st.sidebar.selectbox(
-        "Catégorie de Produit",
-        options=available_categories,
-        index=available_categories.index(default_category),
-        help="Sélectionnez une catégorie de produit parmi celles disponibles"
-    )
-
-    # Vérifier si la catégorie sélectionnée a des données
-    if category_counts[category_id] == 0:
-        st.warning(f"⚠️ Attention: La catégorie {category_id} n'a aucun accord de vente. Veuillez sélectionner une autre catégorie.")
-
-# Ajoute un sélecteur de plage de dates
-start_date = datetime(2022, 1, 1)
-end_date = datetime(2022, 12, 31)
-date_range = st.sidebar.date_input(
-    "Plage de Dates",
-    value=(start_date, end_date),
-    min_value=start_date,
-    max_value=end_date
-)
-
-# Si l'utilisateur a sélectionné une date, la convertit en un tuple contenant les dates de début et de fin
-if isinstance(date_range, tuple) and len(date_range) == 2:
-    selected_start_date, selected_end_date = date_range
-else:
-    selected_start_date, selected_end_date = start_date, end_date
-
-# Indicateurs KPI principaux
-st.header("Indicateurs de Performance Clés (KPIs)")
-
-# Crée une mise en page à trois colonnes pour afficher les KPI
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    # Calcule le nombre d'acteurs du marché pour la catégorie 5
-    actor_count = processor.count_market_actors_by_category(category_id)
-    st.metric(
-        label=f"Nombre d'Acteurs du Marché - Catégorie {category_id}",
-        value=actor_count,
-        delta="+2 par rapport au mois dernier",  # Dans une application réelle, cela serait calculé
-        delta_color="normal"
-    )
-
-with col2:
-    # Calcule le nombre moyen de produits par fabricant pour la catégorie 5
-    avg_products = processor.avg_products_per_manufacturer_by_category(category_id)
-    # Ajouter des informations de débogage
-    st.sidebar.write(f"**Débogage moyenne produits (catégorie {category_id}):**")
-    category_products = processor.product_df[processor.product_df['catID'] == category_id]
-    st.sidebar.write(f"Nombre de produits dans catégorie {category_id}: {len(category_products)}")
-    products_per_manufacturer = category_products.groupby('fabID')['prodID'].nunique()
-    st.sidebar.write(f"Nombre de fabricants: {len(products_per_manufacturer)}")
-    st.sidebar.write(f"Nombre moyen calculé: {products_per_manufacturer.mean()}")
-    
-    st.metric(
-        label=f"Nombre Moyen de Produits/Fabricant - Catégorie {category_id}",
-        value=f"{avg_products:.2f}",
-        delta="-0.5 par rapport au mois dernier",  # Dans une application réelle, cela serait calculé
-        delta_color="normal"
-    )
-
-with col3:
-    # Vérifier si nous avons des données pour cette catégorie
-    category_sales = processor.sale_df[processor.sale_df['catID'] == category_id]
-    manufacturer_products = processor.product_df[
-        (processor.product_df['catID'] == category_id) & 
-        (processor.product_df['fabID'] == manufacturer_id)
-    ]
-    
-    if len(category_sales) == 0:
-        st.error(f"❌ Aucun accord de vente trouvé pour la catégorie {category_id}")
-        health_score = 0.0
-    elif len(manufacturer_products) == 0:
-        st.warning(f"⚠️ Le fabricant {manufacturer_id} n'a pas de produits dans la catégorie {category_id}")
-        health_score = 0.0
-    else:
-        # Calcule le score de santé du fabricant
-        health_score = processor.manufacturer_health_score(manufacturer_id, category_id)
+        date_range = st.sidebar.date_input(
+            "Plage de dates",
+            value=(min_date, max_date),
+            min_value=min_date,
+            max_value=max_date
+        )
         
-        # Ajouter des détails sur le calcul
-        st.sidebar.write(f"\n**Détails du Score de Santé:**")
-        st.sidebar.write(f"- Fabricant: {manufacturer_id}")
-        st.sidebar.write(f"- Catégorie: {category_id}")
-        st.sidebar.write(f"- Produits du fabricant: {len(manufacturer_products)}")
-        st.sidebar.write(f"- Accords de vente dans la catégorie: {len(category_sales)}")
-    
-    st.metric(
-        label=f"Score de Santé du Fabricant {manufacturer_id}",
-        value=f"{health_score:.2%}",
-        delta=None,
-        delta_color="normal"
-    )
+        # S'assurer que la plage de dates est valide
+        if len(date_range) == 2:
+            start_date, end_date = date_range
+            if start_date > end_date:
+                st.sidebar.error("⚠️ La date de début doit être antérieure à la date de fin.")
+                return
+        else:
+            st.sidebar.error("⚠️ Veuillez sélectionner une plage de dates complète.")
+            return
+            
+        # Afficher des informations sur les données filtrées
+        # Ajout d'un contrôle de types pour le filtrage des dates
+        try:
+            # Vérifier le type de date_formatted
+            if 'date_formatted' in product_df.columns and len(product_df) > 0:
+                # Convertir date_formatted en datetime si ce n'est pas déjà le cas
+                if not pd.api.types.is_datetime64_any_dtype(product_df['date_formatted']):
+                    product_df['date_formatted'] = pd.to_datetime(product_df['date_formatted'])
+                if not pd.api.types.is_datetime64_any_dtype(sale_df['date_formatted']):
+                    sale_df['date_formatted'] = pd.to_datetime(sale_df['date_formatted'])
+            
+            # Maintenant nous pouvons filtrer en toute sécurité
+            filtered_products = product_df[
+                (product_df['cat_id'] == selected_category) &
+                (product_df['date_formatted'] >= pd.Timestamp(start_date)) &
+                (product_df['date_formatted'] <= pd.Timestamp(end_date))
+            ]
+            
+            filtered_sales = sale_df[
+                (sale_df['cat_id'] == selected_category) &
+                (sale_df['date_formatted'] >= pd.Timestamp(start_date)) &
+                (sale_df['date_formatted'] <= pd.Timestamp(end_date))
+            ]
+        except Exception as e:
+            st.error(f"Erreur lors du filtrage des données par date: {e}")
+            # Fallback: filtrer uniquement par catégorie si le filtrage par date échoue
+            filtered_products = product_df[product_df['cat_id'] == selected_category]
+            filtered_sales = sale_df[sale_df['cat_id'] == selected_category]
+        
+        # Statistiques de base
+        st.sidebar.subheader("Statistiques de base")
+        filtered_info = f"📊 Produits filtrés: {len(filtered_products)}\n🛒 Accords de vente filtrés: {len(filtered_sales)}"
+        st.sidebar.info(filtered_info)
+        
+        # Afficher le top 10 des magasins dans la barre latérale
+        st.sidebar.subheader("Top 10 des magasins par nombre d'accords")
+        top_stores = processor.top_stores(10)
+        if not top_stores.empty:
+            # Créer une version abrégée pour la barre latérale
+            st.sidebar.dataframe(top_stores[['mag_id', 'agreement_count']], use_container_width=True)
+        else:
+            st.sidebar.warning("⚠️ Aucune donnée de magasin disponible.")
+            
+        # Corps principal
+        # Pour la catégorie et le fabricant sélectionnés
+        st.subheader(f"Analyse pour la catégorie {selected_category} et le fabricant {selected_manufacturer}")
+        
+        # Vérifier si nous avons des données pour ce fabricant et cette catégorie
+        manufacturer_sales = filtered_sales[filtered_sales['fab_id'] == selected_manufacturer]
+        
+        if manufacturer_sales.empty:
+            st.warning(f"⚠️ Aucun accord de vente trouvé pour le fabricant {selected_manufacturer} dans la catégorie {selected_category}.")
+        
+        # Créer les onglets pour organiser le contenu
+        tab1, tab2, tab3, tab4 = st.tabs(["Graphiques KPI", "Top Magasins", "Évolution Temporelle", "Données Brutes"])
+        
+        with tab1:
+            # KPI 1: Nombre d'acteurs dans la catégorie
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.info("Acteurs dans cette catégorie")
+                market_actors = processor.count_market_actors_by_category(selected_category)
+                st.metric("Nombre de fabricants", market_actors)
+                
+                # Évaluation de la concurrence
+                if market_actors <= 3:
+                    st.markdown("<p class='success-metric'>✅ Marché concentré</p>", unsafe_allow_html=True)
+                elif market_actors <= 7:
+                    st.markdown("<p class='warning-metric'>⚠️ Marché modérément compétitif</p>", unsafe_allow_html=True)
+                else:
+                    st.markdown("<p class='danger-metric'>❗ Marché très compétitif</p>", unsafe_allow_html=True)
+                    
+            with col2:
+                st.info("Produits par fabricant")
+                avg_products = processor.avg_products_per_manufacturer_by_category(selected_category)
+                st.metric("Moyenne de produits", f"{avg_products:.1f}")
+                
+                # Évaluation de la diversité des produits
+                if avg_products <= 2:
+                    st.markdown("<p class='danger-metric'>❗ Faible diversité de produits</p>", unsafe_allow_html=True)
+                elif avg_products <= 5:
+                    st.markdown("<p class='warning-metric'>⚠️ Diversité de produits moyenne</p>", unsafe_allow_html=True)
+                else:
+                    st.markdown("<p class='success-metric'>✅ Bonne diversité de produits</p>", unsafe_allow_html=True)
+                
+            with col3:
+                st.info("Santé du fabricant")
+                health_score = processor.manufacturer_health_score(selected_manufacturer, selected_category)
+                st.metric("Score de santé", f"{health_score:.2f}")
+                
+                # Évaluation du score de santé
+                if health_score <= 0.3:
+                    st.markdown("<p class='danger-metric'>❗ Fabricant en difficulté</p>", unsafe_allow_html=True)
+                elif health_score <= 0.7:
+                    st.markdown("<p class='warning-metric'>⚠️ Fabricant stable</p>", unsafe_allow_html=True)
+                else:
+                    st.markdown("<p class='success-metric'>✅ Fabricant performant</p>", unsafe_allow_html=True)
 
-# Affiche les 10 premiers magasins
-st.header(f"Top 10 des Magasins")
-top_stores = processor.top_stores(10)
+            # Graphique de la part de marché
+            st.subheader("Part de marché dans la catégorie")
+            market_share = processor.manufacturer_share_in_category(selected_manufacturer, selected_category)
+            
+            # Créer un graphique en anneau pour la part de marché
+            fig = go.Figure(go.Pie(
+                values=[market_share * 100, (1 - market_share) * 100],
+                labels=[f"Fabricant {selected_manufacturer}", "Autres fabricants"],
+                hole=0.6,
+                marker_colors=['#1E88E5', '#E0E0E0']
+            ))
+            
+            fig.update_layout(
+                title=f"Part de marché du fabricant {selected_manufacturer} dans la catégorie {selected_category}",
+                annotations=[dict(text=f"{market_share:.1%}", x=0.5, y=0.5, font_size=20, showarrow=False)]
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+        with tab2:
+            st.subheader("Présence dans les principaux magasins")
+            
+            # Top 10 des magasins
+            top_stores_df = processor.top_stores(10)
+            
+            if not top_stores_df.empty:
+                # Obtenir les magasins où ce fabricant a des produits
+                manufacturer_stores = set(filtered_sales[filtered_sales['fab_id'] == selected_manufacturer]['mag_id'].unique())
+                top_store_ids = set(top_stores_df['mag_id'].unique())
+                
+                # Calculer le pourcentage de présence dans les top magasins
+                presence_percentage = len(manufacturer_stores.intersection(top_store_ids)) / len(top_store_ids) if top_store_ids else 0
+                
+                # Afficher le pourcentage
+                st.metric("Présence dans les top 10 magasins", f"{presence_percentage:.0%}")
+                
+                # Indicateur de santé
+                if presence_percentage <= 0.3:
+                    st.markdown("<p class='danger-metric'>❗ Faible présence dans les magasins clés</p>", unsafe_allow_html=True)
+                elif presence_percentage <= 0.7:
+                    st.markdown("<p class='warning-metric'>⚠️ Présence moyenne dans les magasins clés</p>", unsafe_allow_html=True)
+                else:
+                    st.markdown("<p class='success-metric'>✅ Forte présence dans les magasins clés</p>", unsafe_allow_html=True)
+                
+                # Créer des données pour le graphique
+                presence_data = []
+                for _, row in top_stores_df.iterrows():
+                    store_id = row['mag_id']
+                    is_present = store_id in manufacturer_stores
+                    presence_data.append({
+                        'mag_id': store_id,
+                        'agreement_count': row['agreement_count'],
+                        'present': "Oui" if is_present else "Non"
+                    })
+                
+                presence_df = pd.DataFrame(presence_data)
+                
+                # Graphique de présence
+                fig = px.bar(
+                    presence_df,
+                    x='mag_id',
+                    y='agreement_count',
+                    color='present',
+                    labels={'mag_id': 'ID du magasin', 'agreement_count': "Nombre d'accords", 'present': 'Présence du fabricant'},
+                    title=f"Présence du fabricant {selected_manufacturer} dans les top 10 magasins",
+                    color_discrete_map={"Oui": "#00C853", "Non": "#F44336"}
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Afficher le tableau de données
+                st.dataframe(presence_df, use_container_width=True)
+            else:
+                st.warning("⚠️ Aucune donnée de magasin disponible.")
+                
+        with tab3:
+            st.subheader("Évolution temporelle")
+            
+            # Créer un sélecteur de granularité temporelle
+            time_granularity = st.selectbox(
+                "Granularité temporelle",
+                options=["Jour", "Semaine", "Mois", "Trimestre", "Année"],
+                index=2  # Mois par défaut
+            )
+            
+            # Mapper la sélection à la fréquence pandas
+            freq_map = {
+                "Jour": "D",
+                "Semaine": "W",
+                "Mois": "M",
+                "Trimestre": "Q",
+                "Année": "Y"
+            }
+            
+            selected_freq = freq_map[time_granularity]
+            
+            # Obtenir l'évolution des acteurs du marché au fil du temps
+            try:
+                # Vérifier que les dates sont au bon format pour le traitement
+                start_date_obj = start_date
+                end_date_obj = end_date
+                
+                # Convertir en datetime.datetime si nécessaire pour le traitement
+                if isinstance(start_date, date) and not isinstance(start_date, datetime):
+                    start_date_obj = datetime.combine(start_date, datetime.min.time())
+                if isinstance(end_date, date) and not isinstance(end_date, datetime):
+                    end_date_obj = datetime.combine(end_date, datetime.min.time())
+                
+                # Enlever le timezone si présent
+                start_date_obj = start_date_obj.replace(tzinfo=None) if hasattr(start_date_obj, 'tzinfo') else start_date_obj
+                end_date_obj = end_date_obj.replace(tzinfo=None) if hasattr(end_date_obj, 'tzinfo') else end_date_obj
+                
+                evolution_df = processor.market_actors_over_time(
+                    selected_category,
+                    start_date_obj,
+                    end_date_obj,
+                    selected_freq
+                )
+            except Exception as e:
+                st.error(f"Erreur lors du calcul de l'évolution des acteurs: {e}")
+                evolution_df = pd.DataFrame(columns=['period_start', 'active_manufacturers'])
+            
+            if not evolution_df.empty:
+                # Créer un graphique d'évolution
+                fig = px.line(
+                    evolution_df,
+                    x='period_start',
+                    y='active_manufacturers',
+                    labels={
+                        'period_start': 'Période',
+                        'active_manufacturers': 'Fabricants actifs'
+                    },
+                    title=f"Évolution du nombre de fabricants actifs dans la catégorie {selected_category}"
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Afficher si le fabricant sélectionné était présent dans chaque période
+                st.subheader(f"Activité du fabricant {selected_manufacturer} au fil du temps")
+                
+                # Filtrer les ventes du fabricant sélectionné
+                manufacturer_sales_over_time = filtered_sales[filtered_sales['fab_id'] == selected_manufacturer]
+                
+                if not manufacturer_sales_over_time.empty:
+                    try:
+                        # S'assurer que date_formatted est au format datetime pour le groupement
+                        if not pd.api.types.is_datetime64_any_dtype(manufacturer_sales_over_time['date_formatted']):
+                            manufacturer_sales_over_time = manufacturer_sales_over_time.copy()
+                            manufacturer_sales_over_time['date_formatted'] = pd.to_datetime(manufacturer_sales_over_time['date_formatted'])
+                        
+                        # Regrouper par période
+                        manufacturer_activity = manufacturer_sales_over_time.groupby(
+                            pd.Grouper(key='date_formatted', freq=selected_freq)
+                        ).size().reset_index()
+                        manufacturer_activity.columns = ['period_start', 'sales_count']
+                        
+                        # Créer un graphique d'activité
+                        fig = px.bar(
+                            manufacturer_activity,
+                            x='period_start',
+                            y='sales_count',
+                            labels={
+                                'period_start': 'Période',
+                                'sales_count': 'Nombre d\'accords'
+                            },
+                            title=f"Activité du fabricant {selected_manufacturer} par {time_granularity.lower()}"
+                        )
+                        
+                        st.plotly_chart(fig, use_container_width=True)
+                    except Exception as e:
+                        st.error(f"Erreur lors de l'analyse de l'activité du fabricant: {e}")
+                else:
+                    st.warning(f"⚠️ Aucune activité trouvée pour le fabricant {selected_manufacturer} dans cette période.")
+            else:
+                st.warning("⚠️ Aucune donnée d'évolution disponible.")
+                
+        with tab4:
+            st.subheader("Données brutes")
+            
+            # Créer des onglets pour les données brutes
+            raw_tab1, raw_tab2 = st.tabs(["Produits", "Accords de vente"])
+            
+            with raw_tab1:
+                st.subheader(f"Produits dans la catégorie {selected_category}")
+                st.dataframe(filtered_products, use_container_width=True)
+                
+            with raw_tab2:
+                st.subheader(f"Accords de vente dans la catégorie {selected_category}")
+                st.dataframe(filtered_sales, use_container_width=True)
 
-# Ajouter des informations détaillées de débogage sur les magasins
-st.sidebar.write("\n**Analyse Détaillée des Top Magasins:**")
-
-# Afficher le nombre total de magasins
-total_stores = processor.sale_df['magID'].nunique()
-st.sidebar.write(f"Nombre total de magasins: {total_stores}")
-
-# Afficher le nombre total d'accords de vente
-total_agreements = len(processor.sale_df)
-st.sidebar.write(f"Nombre total d'accords de vente: {total_agreements}")
-
-# Afficher les détails des top 10 magasins
-st.sidebar.write("\nTop 10 magasins par nombre d'accords:")
-store_counts = processor.sale_df['magID'].value_counts()
-for magID, count in store_counts.head(10).items():
-    percentage = (count / total_agreements) * 100
-    st.sidebar.write(f"Magasin {magID}: {count} accords ({percentage:.1f}% du total)")
-
-# Crée un graphique à barres
-fig_stores = px.bar(
-    top_stores, 
-    x='magID', 
-    y='agreement_count',
-    title=f"Top 10 des Magasins (par nombre d'accords de vente)",
-    labels={"magID": "ID du Magasin", "agreement_count": "Nombre d'Accords de Vente"},
-    color='agreement_count',
-    color_continuous_scale='Viridis'
-)
-st.plotly_chart(fig_stores, use_container_width=True)
-
-# Crée une mise en page à deux colonnes
-col1, col2 = st.columns(2)
-
-with col1:
-    # Crée un graphique d'évolution du nombre d'acteurs du marché au fil du temps (données simulées)
-    st.subheader(f"Évolution du Nombre d'Acteurs du Marché - Catégorie {category_id}")
-    
-    # Données mensuelles simulées
-    months = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 
-              'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre']
-    # Données simulées, seraient obtenues du processeur dans une application réelle
-    actor_counts = np.random.randint(15, 25, size=12)
-    
-    # Crée un graphique linéaire
-    fig_actors = px.line(
-        x=months, 
-        y=actor_counts,
-        markers=True,
-        title=f"Tendance du Nombre d'Acteurs du Marché - Catégorie {category_id} (2022)",
-        labels={"x": "Mois", "y": "Nombre d'Acteurs"}
-    )
-    st.plotly_chart(fig_actors, use_container_width=True)
-
-with col2:
-    # Crée un graphique d'évolution du score de santé du fabricant au fil du temps (données simulées)
-    st.subheader(f"Évolution du Score de Santé du Fabricant {manufacturer_id}")
-    
-    # Données simulées, seraient obtenues du processeur dans une application réelle
-    health_scores = np.random.uniform(0.1, 0.3, size=12)
-    
-    # Crée un graphique linéaire
-    fig_health = px.line(
-        x=months, 
-        y=health_scores,
-        markers=True,
-        title=f"Tendance du Score de Santé du Fabricant {manufacturer_id} (2022)",
-        labels={"x": "Mois", "y": "Score de Santé"}
-    )
-    fig_health.update_layout(yaxis_tickformat='.1%')
-    st.plotly_chart(fig_health, use_container_width=True)
-
-# Affiche des tableaux de données (repliables)
-with st.expander("Voir les Données Brutes"):
-    tab1, tab2 = st.tabs(["Données des Produits", "Données des Accords de Vente"])
-    
-    with tab1:
-        st.dataframe(product_df.head(50))
-    
-    with tab2:
-        st.dataframe(sale_df.head(50))
-
-# Ajoute des annotations et des explications
-st.markdown("""
-### Explication des KPI
-
-1. **Nombre d'Acteurs du Marché**: Nombre de fabricants actifs sur le marché pour une catégorie de produit spécifique.
-2. **Nombre Moyen de Produits/Fabricant**: Nombre moyen de produits qu'un fabricant propose dans une catégorie spécifique.
-3. **Score de Santé du Fabricant**: Proportion moyenne des produits d'un fabricant parmi tous les produits d'une catégorie dans les 10 premiers magasins.
-
-### Source des Données
-- Données provenant de l'API distante: http://51.255.166.155:1353/
-- Période d'analyse: 1er janvier 2022 au 31 décembre 2022
-""")
-
-# Ajoute un pied de page
-st.markdown("---")
-st.markdown("© 2025 Projet d'Analyse de la Santé des Fabricants sur le Marché | Auteur: XXX") 
+# Exécuter l'application lorsque le script est exécuté directement
+if __name__ == "__main__":
+    main() 
