@@ -7,8 +7,30 @@ from typing import Dict, List, Any, Tuple, Optional
 from datetime import datetime
 import random
 
+# Définition des périodes de soldes
+SOLDES_HIVER = {
+    'debut': pd.to_datetime('2022-01-12'),  # 12 janvier 2022
+    'fin': pd.to_datetime('2022-02-08')     # 8 février 2022
+}
+
+SOLDES_ETE = {
+    'debut': pd.to_datetime('2022-06-22'),  # 22 juin 2022
+    'fin': pd.to_datetime('2022-07-19')     # 19 juillet 2022
+}
+
 class DataProcessor:
     """Classe pour traiter les données de produits et d'accords de vente et calculer les KPI"""
+    
+    # Définition des périodes comme variables de classe
+    SOLDES_HIVER = {
+        'debut': pd.to_datetime('2022-01-12'),
+        'fin': pd.to_datetime('2022-02-08')
+    }
+    
+    SOLDES_ETE = {
+        'debut': pd.to_datetime('2022-06-22'),
+        'fin': pd.to_datetime('2022-07-19')
+    }
     
     def __init__(self, product_df: Optional[pd.DataFrame] = None, sale_df: Optional[pd.DataFrame] = None):
         """
@@ -330,6 +352,75 @@ class DataProcessor:
         ]
         
         return len(products)
+
+    def avg_products_per_manufacturer_by_category_soldes(self, category_id: int, periode: str = 'hiver') -> float:
+        """
+        Calcule le nombre moyen de produits par fabricant pendant les soldes
+        
+        Paramètres:
+            category_id: ID de la catégorie
+            periode: 'hiver' ou 'ete'
+        """
+        if self.product_df is None:
+            return 0.0
+        
+        # Définir la période de soldes
+        if periode == 'hiver':
+            debut = self.SOLDES_HIVER['debut']
+            fin = self.SOLDES_HIVER['fin']
+        else:
+            debut = self.SOLDES_ETE['debut']
+            fin = self.SOLDES_ETE['fin']
+        
+        # Filtrer les produits pour la période de soldes
+        soldes_products = self.product_df[
+            (self.product_df['date_formatted'] >= debut) &
+            (self.product_df['date_formatted'] <= fin) &
+            (self.product_df['cat_id'] == category_id)
+        ]
+        
+        if soldes_products.empty:
+            return 0.0
+        
+        # Calculer la moyenne
+        products_per_manufacturer = soldes_products.groupby('fab_id')['prod_id'].nunique()
+        return products_per_manufacturer.mean()
+
+    def top_stores_soldes(self, n: int = 10, periode: str = 'both') -> pd.DataFrame:
+        """
+        Identifie les N premiers magasins pendant les soldes
+        
+        Paramètres:
+            n: Nombre de magasins à retourner
+            periode: 'hiver', 'ete' ou 'both' pour les deux
+        """
+        if self.sale_df is None:
+            return pd.DataFrame()
+        
+        # Filtrer les ventes selon la période
+        if periode == 'hiver':
+            soldes_sales = self.sale_df[
+                (self.sale_df['date_formatted'] >= self.SOLDES_HIVER['debut']) &
+                (self.sale_df['date_formatted'] <= self.SOLDES_HIVER['fin'])
+            ]
+        elif periode == 'ete':
+            soldes_sales = self.sale_df[
+                (self.sale_df['date_formatted'] >= self.SOLDES_ETE['debut']) &
+                (self.sale_df['date_formatted'] <= self.SOLDES_ETE['fin'])
+            ]
+        else:  # both
+            soldes_sales = self.sale_df[
+                ((self.sale_df['date_formatted'] >= self.SOLDES_HIVER['debut']) &
+                 (self.sale_df['date_formatted'] <= self.SOLDES_HIVER['fin'])) |
+                ((self.sale_df['date_formatted'] >= self.SOLDES_ETE['debut']) &
+                 (self.sale_df['date_formatted'] <= self.SOLDES_ETE['fin']))
+            ]
+        
+        # Calculer le nombre d'accords par magasin
+        store_counts = soldes_sales['mag_id'].value_counts().reset_index()
+        store_counts.columns = ['mag_id', 'agreement_count']
+        
+        return store_counts.head(n)
 
 # Code de test
 if __name__ == "__main__":

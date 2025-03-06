@@ -65,6 +65,17 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Ajouter ces constantes au début du fichier
+SOLDES_HIVER = {
+    'debut': pd.to_datetime('2022-01-12'),  # 12 janvier 2022
+    'fin': pd.to_datetime('2022-02-08')     # 8 février 2022
+}
+
+SOLDES_ETE = {
+    'debut': pd.to_datetime('2022-06-22'),  # 22 juin 2022
+    'fin': pd.to_datetime('2022-07-19')     # 19 juillet 2022
+}
+
 def initialize_data_processor():
     """Initialise le processeur de données"""
     return DataProcessor()
@@ -396,22 +407,12 @@ def main():
                     st.markdown("<p class='success-metric'>✅ Nombre élevé de produits</p>", unsafe_allow_html=True)
             
             with col2:
-                st.info("Acteurs dans cette catégorie")
-                market_actors = processor.count_market_actors_by_category(selected_category)
-                st.metric(
-                    label="Nombre de fabricants", 
-                    value=market_actors,
-                    help=f"Nombre de fabricants différents dans la catégorie {selected_category}"
+                st.info("Produits par fabricant (Soldes d'hiver)")
+                avg_products_hiver = processor.avg_products_per_manufacturer_by_category_soldes(
+                    selected_category, 'hiver'
                 )
-                
-                # Évaluation de la concurrence
-                if market_actors <= 3:
-                    st.markdown("<p class='success-metric'>✅ Marché concentré</p>", unsafe_allow_html=True)
-                elif market_actors <= 7:
-                    st.markdown("<p class='warning-metric'>⚠️ Marché modérément compétitif</p>", unsafe_allow_html=True)
-                else:
-                    st.markdown("<p class='danger-metric'>❗ Marché très compétitif</p>", unsafe_allow_html=True)
-                
+                st.metric("Moyenne de produits (Soldes hiver)", f"{avg_products_hiver:.1f}")
+            
             with col3:
                 st.info("Produits par fabricant")
                 avg_products = processor.avg_products_per_manufacturer_by_category(selected_category)
@@ -519,8 +520,36 @@ def main():
                 
                 # Afficher le tableau de données
                 st.dataframe(presence_df, use_container_width=True)
-            else:
-                st.warning("⚠️ Aucune donnée de magasin disponible.")
+                
+            st.subheader("Top 10 des magasins pendant les soldes")
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.info("Soldes d'hiver")
+                top_stores_hiver = processor.top_stores_soldes(10, 'hiver')
+                st.dataframe(top_stores_hiver)
+
+            with col2:
+                st.info("Soldes d'été")
+                top_stores_ete = processor.top_stores_soldes(10, 'ete')
+                st.dataframe(top_stores_ete)
+
+            # Comparaison des périodes
+            st.subheader("Comparaison des périodes de soldes")
+            top_stores_both = processor.top_stores_soldes(10, 'both')
+
+            # Créer un graphique de comparaison
+            fig = px.bar(
+                top_stores_both,
+                x='mag_id',
+                y='agreement_count',
+                title="Top 10 des magasins pendant les soldes (Hiver et Été)",
+                labels={
+                    'mag_id': 'ID du magasin',
+                    'agreement_count': "Nombre d'accords"
+                }
+            )
+            st.plotly_chart(fig, use_container_width=True)
                 
         with tab3:
             st.subheader("Évolution temporelle")
