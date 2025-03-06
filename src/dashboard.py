@@ -386,9 +386,35 @@ def main():
             col1, col2, col3 = st.columns(3)
             
             with col1:
+                # 问题1.0: 该制造商在类别中的产品数量
+                manufacturer_products = processor.manufacturer_products_in_category(
+                    selected_manufacturer, selected_category
+                )
+                st.info("Produits du fabricant")
+                st.metric(
+                    label="Nombre de produits", 
+                    value=manufacturer_products,
+                    help=f"Nombre de produits du fabricant {selected_manufacturer} dans la catégorie {selected_category}"
+                )
+                
+                # 评估该制造商的产品数量
+                category_avg = processor.avg_products_per_manufacturer_by_category(selected_category)
+                if manufacturer_products <= category_avg * 0.5:
+                    st.markdown("<p class='danger-metric'>❗ Peu de produits par rapport à la moyenne</p>", unsafe_allow_html=True)
+                elif manufacturer_products <= category_avg:
+                    st.markdown("<p class='warning-metric'>⚠️ Nombre moyen de produits</p>", unsafe_allow_html=True)
+                else:
+                    st.markdown("<p class='success-metric'>✅ Nombre élevé de produits</p>", unsafe_allow_html=True)
+            
+            with col2:
+                # 问题1.1: 类别中的竞争者数量
                 st.info("Acteurs dans cette catégorie")
                 market_actors = processor.count_market_actors_by_category(selected_category)
-                st.metric("Nombre de fabricants", market_actors)
+                st.metric(
+                    label="Nombre de fabricants", 
+                    value=market_actors,
+                    help=f"Nombre de fabricants différents dans la catégorie {selected_category}"
+                )
                 
                 # Évaluation de la concurrence
                 if market_actors <= 3:
@@ -397,11 +423,16 @@ def main():
                     st.markdown("<p class='warning-metric'>⚠️ Marché modérément compétitif</p>", unsafe_allow_html=True)
                 else:
                     st.markdown("<p class='danger-metric'>❗ Marché très compétitif</p>", unsafe_allow_html=True)
-                    
-            with col2:
+                
+            with col3:
+                # 问题1.2: 平均产品数量
                 st.info("Produits par fabricant")
                 avg_products = processor.avg_products_per_manufacturer_by_category(selected_category)
-                st.metric("Moyenne de produits", f"{avg_products:.1f}")
+                st.metric(
+                    label="Moyenne de produits", 
+                    value=f"{avg_products:.2f}",
+                    help=f"Nombre moyen de produits par fabricant dans la catégorie {selected_category}"
+                )
                 
                 # Évaluation de la diversité des produits
                 if avg_products <= 2:
@@ -410,11 +441,15 @@ def main():
                     st.markdown("<p class='warning-metric'>⚠️ Diversité de produits moyenne</p>", unsafe_allow_html=True)
                 else:
                     st.markdown("<p class='success-metric'>✅ Bonne diversité de produits</p>", unsafe_allow_html=True)
-                
-            with col3:
-                st.info("Santé du fabricant")
-                health_score = processor.manufacturer_health_score(selected_manufacturer, selected_category)
-                st.metric("Score de santé", f"{health_score:.2f}")
+            
+            # 问题1.3: 健康评分
+            st.subheader("Santé du fabricant")
+            health_score = processor.manufacturer_health_score(selected_manufacturer, selected_category)
+            
+            # Afficher le score de santé
+            col_score, col_chart = st.columns([1, 3])
+            with col_score:
+                st.metric("Score de santé", f"{health_score:.2%}")
                 
                 # Évaluation du score de santé
                 if health_score <= 0.3:
@@ -423,26 +458,28 @@ def main():
                     st.markdown("<p class='warning-metric'>⚠️ Fabricant stable</p>", unsafe_allow_html=True)
                 else:
                     st.markdown("<p class='success-metric'>✅ Fabricant performant</p>", unsafe_allow_html=True)
-
+            
             # Graphique de la part de marché
-            st.subheader("Part de marché dans la catégorie")
-            market_share = processor.manufacturer_share_in_category(selected_manufacturer, selected_category)
-            
-            # Créer un graphique en anneau pour la part de marché
-            fig = go.Figure(go.Pie(
-                values=[market_share * 100, (1 - market_share) * 100],
-                labels=[f"Fabricant {selected_manufacturer}", "Autres fabricants"],
-                hole=0.6,
-                marker_colors=['#1E88E5', '#E0E0E0']
-            ))
-            
-            fig.update_layout(
-                title=f"Part de marché du fabricant {selected_manufacturer} dans la catégorie {selected_category}",
-                annotations=[dict(text=f"{market_share:.1%}", x=0.5, y=0.5, font_size=20, showarrow=False)]
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-            
+            with col_chart:
+                total_products = len(filtered_products)
+                if total_products > 0:
+                    market_share = manufacturer_products / total_products
+                    
+                    # Créer un graphique en anneau pour la part de marché
+                    fig = go.Figure(go.Pie(
+                        values=[market_share * 100, (1 - market_share) * 100],
+                        labels=[f"Fabricant {selected_manufacturer}", "Autres fabricants"],
+                        hole=0.6,
+                        marker_colors=['#1E88E5', '#E0E0E0']
+                    ))
+                    
+                    fig.update_layout(
+                        title=f"Part de marché du fabricant {selected_manufacturer} dans la catégorie {selected_category}",
+                        annotations=[dict(text=f"{market_share:.1%}", x=0.5, y=0.5, font_size=20, showarrow=False)]
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+
         with tab2:
             st.subheader("Présence dans les principaux magasins")
             

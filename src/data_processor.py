@@ -312,6 +312,28 @@ class DataProcessor:
         
         # Calculer la proportion
         return manufacturer_products / total_products if total_products > 0 else 0.0
+    
+    def manufacturer_products_in_category(self, manufacturer_id: int, category_id: int) -> int:
+        """
+        Calcule le nombre de produits d'un fabricant dans une catégorie spécifique
+        
+        Paramètres:
+            manufacturer_id: ID du fabricant
+            category_id: ID de la catégorie de produit
+            
+        Retourne:
+            Nombre de produits
+        """
+        if self.product_df is None:
+            raise ValueError("DataFrame de produits non défini")
+        
+        # Filtre les produits du fabricant dans la catégorie spécifique
+        products = self.product_df[
+            (self.product_df['cat_id'] == category_id) & 
+            (self.product_df['fab_id'] == manufacturer_id)
+        ]
+        
+        return len(products)
 
 # Code de test
 if __name__ == "__main__":
