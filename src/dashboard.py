@@ -91,50 +91,119 @@ def load_data_from_test_file(file_path: str, data_type: str) -> pd.DataFrame:
         DataFrame avec les données chargées
     """
     try:
-        # Lire le fichier JSON ligne par ligne
-        records = []
-        with open(file_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if line:  # Ignorer les lignes vides
-                    try:
-                        record = json.loads(line)
-                        records.append(record)
-                    except json.JSONDecodeError:
-                        st.sidebar.warning(f"⚠️ Ligne ignorée dans {file_path}: {line[:50]}...")
-        
-        if not records:
+        # Vérifier si le fichier existe
+        if not os.path.exists(file_path):
+            st.sidebar.error(f"❌ Fichier non trouvé: {file_path}")
             return pd.DataFrame()
             
-        df = pd.DataFrame(records)
+        # Déterminer le format de fichier en fonction de l'extension
+        file_ext = os.path.splitext(file_path)[1].lower()
         
-        # Renommer les colonnes
-        if data_type == 'product':
-            column_map = {
-                'logID': 'log_id',
-                'prodID': 'prod_id',
-                'catID': 'cat_id',
-                'fabID': 'fab_id',
-                'dateID': 'date_id'
-            }
-        else:  # sale
-            column_map = {
-                'logID': 'log_id',
-                'prodID': 'prod_id',
-                'catID': 'cat_id',
-                'fabID': 'fab_id',
-                'magID': 'mag_id',
-                'dateID': 'date_id'
-            }
+        if file_ext == '.csv':
+            # Lire le fichier CSV
+            df = pd.read_csv(file_path)
+            
+            # Vérifier si les données ont été chargées
+            if df.empty:
+                st.sidebar.warning(f"⚠️ Aucune donnée trouvée dans le fichier CSV: {file_path}")
+                return pd.DataFrame()
+                
+            # S'assurer que les colonnes date_formatted sont au format datetime
+            if 'date_formatted' in df.columns:
+                df['date_formatted'] = pd.to_datetime(df['date_formatted'])
+                
+            # Informations sur les données chargées
+            st.sidebar.success(f"✅ Données CSV chargées avec succès: {len(df)} enregistrements")
+            return df
+            
+        elif file_ext in ['.jsonl', '.json', '.orig']:
+            # Lire le fichier JSON ligne par ligne
+            records = []
+            with open(file_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line:  # Ignorer les lignes vides
+                        try:
+                            record = json.loads(line)
+                            records.append(record)
+                        except json.JSONDecodeError:
+                            # Essayer de parser comme des valeurs séparées par des espaces
+                            parts = line.split()
+                            if data_type == 'product' and len(parts) >= 4:
+                                record = {
+                                    'date_id': parts[0],
+                                    'prod_id': parts[1],
+                                    'cat_id': parts[2],
+                                    'fab_id': parts[3]
+                                }
+                                records.append(record)
+                            elif data_type == 'sale' and len(parts) >= 5:
+                                record = {
+                                    'date_id': parts[0],
+                                    'prod_id': parts[1],
+                                    'cat_id': parts[2],
+                                    'fab_id': parts[3],
+                                    'mag_id': parts[4]
+                                }
+                                records.append(record)
+                            else:
+                                st.sidebar.warning(f"⚠️ Ligne ignorée dans {file_path}: {line[:50]}...")
+            
+            if not records:
+                st.sidebar.warning(f"⚠️ Aucun enregistrement valide trouvé dans {file_path}")
+                return pd.DataFrame()
+                
+            df = pd.DataFrame(records)
+            
+            # Renommer les colonnes si nécessaire
+            if data_type == 'product':
+                column_map = {
+                    'logID': 'log_id',
+                    'prodID': 'prod_id',
+                    'catID': 'cat_id',
+                    'fabID': 'fab_id',
+                    'dateID': 'date_id'
+                }
+            else:  # sale
+                column_map = {
+                    'logID': 'log_id',
+                    'prodID': 'prod_id',
+                    'catID': 'cat_id',
+                    'fabID': 'fab_id',
+                    'magID': 'mag_id',
+                    'dateID': 'date_id'
+                }
+            
+            # Renommer uniquement les colonnes qui existent
+            for old_col, new_col in column_map.items():
+                if old_col in df.columns:
+                    df = df.rename(columns={old_col: new_col})
+            
+            # Convertir les colonnes numériques
+            for col in df.columns:
+                if col != 'date_formatted':
+                    try:
+                        df[col] = pd.to_numeric(df[col], errors='ignore')
+                    except:
+                        pass
+            
+            # Ajouter la colonne de date formatée si elle n'existe pas
+            if 'date_id' in df.columns and 'date_formatted' not in df.columns:
+                try:
+                    df['date_formatted'] = pd.to_datetime(df['date_id'].astype(str), format='%Y%m%d')
+                except Exception as e:
+                    st.sidebar.warning(f"⚠️ Impossible de créer la colonne date_formatted: {e}")
+            
+            st.sidebar.success(f"✅ Données JSON/texte chargées avec succès: {len(df)} enregistrements")
+            return df
+        else:
+            st.sidebar.error(f"❌ Format de fichier non pris en charge: {file_ext}")
+            return pd.DataFrame()
         
-        df = df.rename(columns=column_map)
-        
-        # Ajouter la colonne de date formatée
-        df['date_formatted'] = pd.to_datetime(df['date_id'].astype(str), format='%Y%m%d')
-        
-        return df
     except Exception as e:
         st.sidebar.error(f"❌ Erreur lors du chargement du fichier {file_path}: {e}")
+        import traceback
+        st.sidebar.error(traceback.format_exc())
         return pd.DataFrame()
 
 def load_data_from_database():
@@ -184,8 +253,8 @@ def main():
             return
     else:  # Fichier de test
         # Sélecteur de fichiers de test
-        test_product_file = st.sidebar.text_input("Fichier de données produits", "data/test_products.jsonl")
-        test_sale_file = st.sidebar.text_input("Fichier de données ventes", "data/test_sales.jsonl")
+        test_product_file = st.sidebar.text_input("Fichier de données produits", "data/test_products.csv")
+        test_sale_file = st.sidebar.text_input("Fichier de données ventes", "data/test_sales.csv")
         
         # Charger les données depuis les fichiers de test
         product_df = load_data_from_test_file(test_product_file, "product")
