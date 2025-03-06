@@ -386,7 +386,6 @@ def main():
             col1, col2, col3 = st.columns(3)
             
             with col1:
-                # 问题1.0: 该制造商在类别中的产品数量
                 manufacturer_products = processor.manufacturer_products_in_category(
                     selected_manufacturer, selected_category
                 )
@@ -397,7 +396,6 @@ def main():
                     help=f"Nombre de produits du fabricant {selected_manufacturer} dans la catégorie {selected_category}"
                 )
                 
-                # 评估该制造商的产品数量
                 category_avg = processor.avg_products_per_manufacturer_by_category(selected_category)
                 if manufacturer_products <= category_avg * 0.5:
                     st.markdown("<p class='danger-metric'>❗ Peu de produits par rapport à la moyenne</p>", unsafe_allow_html=True)
@@ -407,7 +405,6 @@ def main():
                     st.markdown("<p class='success-metric'>✅ Nombre élevé de produits</p>", unsafe_allow_html=True)
             
             with col2:
-                # 问题1.1: 类别中的竞争者数量
                 st.info("Acteurs dans cette catégorie")
                 market_actors = processor.count_market_actors_by_category(selected_category)
                 st.metric(
@@ -425,7 +422,6 @@ def main():
                     st.markdown("<p class='danger-metric'>❗ Marché très compétitif</p>", unsafe_allow_html=True)
                 
             with col3:
-                # 问题1.2: 平均产品数量
                 st.info("Produits par fabricant")
                 avg_products = processor.avg_products_per_manufacturer_by_category(selected_category)
                 st.metric(
@@ -435,14 +431,13 @@ def main():
                 )
                 
                 # Évaluation de la diversité des produits
-                if avg_products <= 2:
+                if avg_products <= 20:
                     st.markdown("<p class='danger-metric'>❗ Faible diversité de produits</p>", unsafe_allow_html=True)
-                elif avg_products <= 5:
+                elif avg_products <= 50:
                     st.markdown("<p class='warning-metric'>⚠️ Diversité de produits moyenne</p>", unsafe_allow_html=True)
                 else:
                     st.markdown("<p class='success-metric'>✅ Bonne diversité de produits</p>", unsafe_allow_html=True)
             
-            # 问题1.3: 健康评分
             st.subheader("Santé du fabricant")
             health_score = processor.manufacturer_health_score(selected_manufacturer, selected_category)
             
