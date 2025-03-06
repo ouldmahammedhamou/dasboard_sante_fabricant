@@ -285,46 +285,37 @@ def main():
         selected_category = st.sidebar.selectbox("Catégorie", categories, index=0)
         selected_manufacturer = st.sidebar.selectbox("Fabricant", manufacturers, index=0)
         
-        # Filtrer par date
-        if 'date_formatted' in product_df.columns and len(product_df['date_formatted']) > 0 and not product_df['date_formatted'].isna().all():
-            try:
-                date_min = product_df['date_formatted'].min()
-                date_max = product_df['date_formatted'].max()
-                 
-                if hasattr(date_min, 'date'):
-                    min_date = date_min.date()
-                else:
-                    min_date = date_min
-                    
-                if hasattr(date_max, 'date'):
-                    max_date = date_max.date()
-                else:
-                    max_date = date_max
-            except (AttributeError, ValueError, TypeError) as e:
-                st.sidebar.warning(f"Erreur lors du traitement des dates: {e}. Utilisation des dates par défaut.")
-                min_date = date(2022, 1, 1)
-                max_date = date(2022, 12, 31)
-        else:
-            min_date = date(2022, 1, 1)
-            max_date = date(2022, 12, 31)
+        # Filtres temporels
+        st.sidebar.header("Filtres Temporels")
 
+        # Sélecteur de dates
+        start_date = datetime(2022, 1, 1)
+        end_date = datetime(2022, 12, 31)
         date_range = st.sidebar.date_input(
-            "Plage de dates",
-            value=(min_date, max_date),
-            min_value=min_date,
-            max_value=max_date
+            "Plage de Dates",
+            value=(start_date, end_date),
+            min_value=start_date,
+            max_value=end_date
         )
-        
-        # S'assurer que la plage de dates est valide
-        if len(date_range) == 2:
-            start_date, end_date = date_range
-            if start_date > end_date:
-                st.sidebar.error("⚠️ La date de début doit être antérieure à la date de fin.")
-                return
+
+        # Sélecteur de granularité
+        granularity = st.sidebar.selectbox(
+            "Granularité temporelle",
+            options=['M', 'W', 'D'],
+            format_func=lambda x: {
+                'M': 'Mois',
+                'W': 'Semaine',
+                'D': 'Jour'
+            }[x],
+            help="Choisissez l'intervalle de temps pour l'analyse"
+        )
+
+        # Si l'utilisateur a sélectionné une plage de dates
+        if isinstance(date_range, tuple) and len(date_range) == 2:
+            selected_start_date, selected_end_date = date_range
         else:
-            st.sidebar.error("⚠️ Veuillez sélectionner une plage de dates complète.")
-            return
-            
+            selected_start_date, selected_end_date = start_date, end_date
+
         # Afficher des informations sur les données filtrées
         # Ajout d'un contrôle de types pour le filtrage des dates
         try:
@@ -339,14 +330,14 @@ def main():
             # Maintenant nous pouvons filtrer en toute sécurité
             filtered_products = product_df[
                 (product_df['cat_id'] == selected_category) &
-                (product_df['date_formatted'] >= pd.Timestamp(start_date)) &
-                (product_df['date_formatted'] <= pd.Timestamp(end_date))
+                (product_df['date_formatted'] >= pd.Timestamp(selected_start_date)) &
+                (product_df['date_formatted'] <= pd.Timestamp(selected_end_date))
             ]
             
             filtered_sales = sale_df[
                 (sale_df['cat_id'] == selected_category) &
-                (sale_df['date_formatted'] >= pd.Timestamp(start_date)) &
-                (sale_df['date_formatted'] <= pd.Timestamp(end_date))
+                (sale_df['date_formatted'] >= pd.Timestamp(selected_start_date)) &
+                (sale_df['date_formatted'] <= pd.Timestamp(selected_end_date))
             ]
         except Exception as e:
             st.error(f"Erreur lors du filtrage des données par date: {e}")
@@ -539,103 +530,49 @@ def main():
         with tab3:
             st.subheader("Évolution temporelle")
             
-            # Créer un sélecteur de granularité temporelle
-            time_granularity = st.selectbox(
-                "Granularité temporelle",
-                options=["Jour", "Semaine", "Mois", "Trimestre", "Année"],
-                index=2  # Mois par défaut
-            )
-            
-            # Mapper la sélection à la fréquence pandas
-            freq_map = {
-                "Jour": "D",
-                "Semaine": "W",
-                "Mois": "M",
-                "Trimestre": "Q",
-                "Année": "Y"
-            }
-            
-            selected_freq = freq_map[time_granularity]
-            
-            # Obtenir l'évolution des acteurs du marché au fil du temps
             try:
-                # Vérifier que les dates sont au bon format pour le traitement
-                start_date_obj = start_date
-                end_date_obj = end_date
+                # Convertir les dates sélectionnées
+                start_date = pd.to_datetime(selected_start_date)
+                end_date = pd.to_datetime(selected_end_date)
                 
-                # Convertir en datetime.datetime si nécessaire pour le traitement
-                if isinstance(start_date, date) and not isinstance(start_date, datetime):
-                    start_date_obj = datetime.combine(start_date, datetime.min.time())
-                if isinstance(end_date, date) and not isinstance(end_date, datetime):
-                    end_date_obj = datetime.combine(end_date, datetime.min.time())
+                # Debug: afficher les informations
+                st.sidebar.write("Debug info:")
+                st.sidebar.write(f"Dates: {start_date} to {end_date}")
+                st.sidebar.write(f"Catégorie: {selected_category}")
+                st.sidebar.write(f"Granularité: {granularity}")
                 
-                # Enlever le timezone si présent
-                start_date_obj = start_date_obj.replace(tzinfo=None) if hasattr(start_date_obj, 'tzinfo') else start_date_obj
-                end_date_obj = end_date_obj.replace(tzinfo=None) if hasattr(end_date_obj, 'tzinfo') else end_date_obj
-                
+                # Obtenir l'évolution des acteurs
                 evolution_df = processor.market_actors_over_time(
-                    selected_category,
-                    start_date_obj,
-                    end_date_obj,
-                    selected_freq
-                )
-            except Exception as e:
-                st.error(f"Erreur lors du calcul de l'évolution des acteurs: {e}")
-                evolution_df = pd.DataFrame(columns=['period_start', 'active_manufacturers'])
-            
-            if not evolution_df.empty:
-                # Créer un graphique d'évolution
-                fig = px.line(
-                    evolution_df,
-                    x='period_start',
-                    y='active_manufacturers',
-                    labels={
-                        'period_start': 'Période',
-                        'active_manufacturers': 'Fabricants actifs'
-                    },
-                    title=f"Évolution du nombre de fabricants actifs dans la catégorie {selected_category}"
+                    category_id=selected_category,
+                    start_date=start_date,
+                    end_date=end_date,
+                    freq=granularity
                 )
                 
-                st.plotly_chart(fig, use_container_width=True)
-                
-                # Afficher si le fabricant sélectionné était présent dans chaque période
-                st.subheader(f"Activité du fabricant {selected_manufacturer} au fil du temps")
-                
-                # Filtrer les ventes du fabricant sélectionné
-                manufacturer_sales_over_time = filtered_sales[filtered_sales['fab_id'] == selected_manufacturer]
-                
-                if not manufacturer_sales_over_time.empty:
-                    try:
-                        # S'assurer que date_formatted est au format datetime pour le groupement
-                        if not pd.api.types.is_datetime64_any_dtype(manufacturer_sales_over_time['date_formatted']):
-                            manufacturer_sales_over_time = manufacturer_sales_over_time.copy()
-                            manufacturer_sales_over_time['date_formatted'] = pd.to_datetime(manufacturer_sales_over_time['date_formatted'])
-                        
-                        # Regrouper par période
-                        manufacturer_activity = manufacturer_sales_over_time.groupby(
-                            pd.Grouper(key='date_formatted', freq=selected_freq)
-                        ).size().reset_index()
-                        manufacturer_activity.columns = ['period_start', 'sales_count']
-                        
-                        # Créer un graphique d'activité
-                        fig = px.bar(
-                            manufacturer_activity,
-                            x='period_start',
-                            y='sales_count',
-                            labels={
-                                'period_start': 'Période',
-                                'sales_count': 'Nombre d\'accords'
-                            },
-                            title=f"Activité du fabricant {selected_manufacturer} par {time_granularity.lower()}"
-                        )
-                        
-                        st.plotly_chart(fig, use_container_width=True)
-                    except Exception as e:
-                        st.error(f"Erreur lors de l'analyse de l'activité du fabricant: {e}")
+                if not evolution_df.empty:
+                    st.write("Données d'évolution:", evolution_df)
+                    
+                    # Créer le graphique
+                    fig = px.line(
+                        evolution_df,
+                        x='period_start',
+                        y='actor_count',
+                        title=f"Évolution du nombre d'acteurs - Catégorie {selected_category}",
+                        labels={
+                            'period_start': 'Période',
+                            'actor_count': "Nombre d'acteurs"
+                        }
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
                 else:
-                    st.warning(f"⚠️ Aucune activité trouvée pour le fabricant {selected_manufacturer} dans cette période.")
-            else:
-                st.warning("⚠️ Aucune donnée d'évolution disponible.")
+                    st.warning("⚠️ Aucune donnée d'évolution disponible.")
+                    
+            except Exception as e:
+                st.error(f"Erreur lors du calcul de l'évolution des acteurs: {str(e)}")
+                # Afficher plus de détails sur l'erreur
+                st.sidebar.error(f"Détails de l'erreur: {e.__class__.__name__}")
+                if processor.product_df is not None:
+                    st.sidebar.write("Colonnes disponibles:", processor.product_df.columns.tolist())
                 
         with tab4:
             st.subheader("Données brutes")

@@ -239,50 +239,46 @@ class DataProcessor:
         # Retourne la moyenne des scores de tous les magasins
         return sum(store_scores) / len(store_scores) if store_scores else 0.0
     
-    def market_actors_over_time(self, category_id: int, start_date: datetime, end_date: datetime, 
-                               freq: str = 'M') -> pd.DataFrame:
+    def market_actors_over_time(self, category_id: int, start_date: datetime, end_date: datetime, freq: str = 'M') -> pd.DataFrame:
         """
-        Analyse l'évolution des acteurs du marché au fil du temps pour une catégorie spécifique
-        
-        Paramètres:
-            category_id: ID de la catégorie de produit
-            start_date: Date de début de l'analyse
-            end_date: Date de fin de l'analyse
-            freq: Fréquence d'agrégation ('D' pour jour, 'W' pour semaine, 'M' pour mois)
-            
-        Retourne:
-            DataFrame avec le nombre d'acteurs par période
+        Calcule l'évolution du nombre d'acteurs du marché pour une catégorie spécifique
         """
         if self.product_df is None:
             raise ValueError("DataFrame de produits non défini")
-            
-        # S'assurer que nous avons une colonne de date
-        product_df_with_date = self.add_date_column(self.product_df)
         
-        # Filtrer par catégorie et plage de dates
-        filtered_products = product_df_with_date[
-            (product_df_with_date['cat_id'] == category_id) &
-            (product_df_with_date['date'] >= start_date) &
-            (product_df_with_date['date'] <= end_date)
+        # Convertir les dates au format YYYYMMDD en datetime
+        df_with_dates = self.product_df.copy()
+        df_with_dates['date'] = pd.to_datetime(df_with_dates['date_id'].astype(str), format='%Y%m%d')
+        
+        # Filtre les produits pour la catégorie spécifique
+        filtered_df = df_with_dates[
+            (df_with_dates['cat_id'] == category_id) & 
+            (df_with_dates['date'] >= start_date) & 
+            (df_with_dates['date'] <= end_date)
         ]
         
-        if filtered_products.empty:
-            return pd.DataFrame(columns=['period', 'manufacturer_count'])
-            
-        # Grouper par période et compter les fabricants uniques
-        # Créer une colonne de période basée sur la fréquence spécifiée
-        if freq == 'D':
-            filtered_products['period'] = filtered_products['date'].dt.date
-        elif freq == 'W':
-            filtered_products['period'] = filtered_products['date'].dt.to_period('W').dt.start_time
-        else:  # default to 'M'
-            filtered_products['period'] = filtered_products['date'].dt.to_period('M').dt.start_time
-            
-        # Grouper et compter
-        result = filtered_products.groupby('period')['fab_id'].nunique().reset_index()
-        result.columns = ['period', 'manufacturer_count']
+        # Crée des périodes de temps
+        time_periods = pd.date_range(start=start_date, end=end_date, freq=freq)
         
-        return result
+        # Calcule le nombre d'acteurs pour chaque période
+        results = []
+        for i in range(len(time_periods) - 1):
+            period_start = time_periods[i]
+            period_end = time_periods[i+1]
+            
+            period_data = filtered_df[
+                (filtered_df['date'] >= period_start) & 
+                (filtered_df['date'] < period_end)
+            ]
+            
+            actor_count = period_data['fab_id'].nunique()
+            
+            results.append({
+                'period_start': period_start,
+                'actor_count': actor_count
+            })
+        
+        return pd.DataFrame(results)
     
     def manufacturer_share_in_category(self, manufacturer_id: int, category_id: int) -> float:
         """
