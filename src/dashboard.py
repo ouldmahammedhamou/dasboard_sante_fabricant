@@ -513,39 +513,66 @@ def main():
             st.subheader("Analyse temporelle")
             
             # Analyse des fabricants par mois (question 2.1)
-            # Cette visualisation montre comment le nombre de fabricants différents évolue chaque mois,
+            # Cette visualisation montre comment le nombre de fabricants différents évolue selon la période choisie,
             # permettant d'identifier les périodes de forte ou faible concurrence.
-            st.write(f"#### 2.1 Évolution mensuelle des fabricants - Catégorie {selected_category}")
+            
+            # Mettre à jour le titre en fonction de la granularité
+            granularity_labels = {
+                'M': 'mensuelle',
+                'W': 'hebdomadaire',
+                'D': 'journalière'
+            }
+            
+            st.write(f"#### 2.1 Évolution {granularity_labels[granularity]} des fabricants - Catégorie {selected_category}")
             
             try:
                 start_date_obj = pd.Timestamp(start_date).to_pydatetime()
                 end_date_obj = pd.Timestamp(end_date).to_pydatetime()
                 
-                # Obtenir les données d'évolution par mois
+                # Obtenir les données d'évolution selon la granularité choisie
                 evolution_df = processor.market_actors_over_time(
                     selected_category,
                     start_date_obj,
                     end_date_obj,
-                    freq='M'  # Analyse mensuelle
+                    freq=granularity  # Utiliser la granularité sélectionnée
                 )
                 
                 if not evolution_df.empty:
+                    # Adapter les labels en fonction de la granularité
+                    time_labels = {
+                        'M': 'Mois',
+                        'W': 'Semaine',
+                        'D': 'Jour'
+                    }
+                    
                     # Créer le graphique d'évolution
                     fig = px.line(
                         evolution_df,
                         x='period_start',
                         y='actor_count',
                         labels={
-                            'period_start': 'Mois',
+                            'period_start': time_labels[granularity],
                             'actor_count': 'Nombre de fabricants'
                         },
-                        title=f"Nombre de fabricants différents par mois dans la catégorie {selected_category}"
+                        title=f"Nombre de fabricants différents par {time_labels[granularity].lower()} dans la catégorie {selected_category}"
                     )
                     
                     fig.update_layout(
-                        xaxis_title="Mois",
+                        xaxis_title=time_labels[granularity],
                         yaxis_title="Nombre de fabricants",
                         hovermode="x unified"
+                    )
+                    
+                    # Adapter le format de date en fonction de la granularité
+                    if granularity == 'D':
+                        date_format = '%d %b %Y'
+                    elif granularity == 'W':
+                        date_format = 'Semaine %W, %Y'
+                    else:  # 'M'
+                        date_format = '%b %Y'
+                        
+                    fig.update_xaxes(
+                        tickformat=date_format
                     )
                     
                     st.plotly_chart(fig, use_container_width=True)
@@ -613,57 +640,75 @@ def main():
                 else:
                     st.warning("⚠️ Aucune donnée pour les soldes d'été.")
             
-            # Évolution du score de santé au fil du temps (question 2.4)
-            # Cette visualisation montre comment la position concurrentielle du fabricant
-            # évolue chaque mois, par rapport aux produits concurrents dans les mêmes magasins.
-            st.write(f"#### 2.4 Évolution du score de santé - Fabricant {selected_manufacturer}, Catégorie {selected_category}")
+            # Analyse de l'évolution du score de santé (question 2.4)
+            # Cette visualisation montre comment le score de santé du fabricant évolue au fil du temps.
+            st.write(f"#### 2.4 Évolution {granularity_labels[granularity]} du score de santé - Fabricant {selected_manufacturer}")
             
             try:
-                analysis_start = datetime(2022, 1, 1)
-                analysis_end = pd.Timestamp(end_date).to_pydatetime()
-                
+                # Obtenir l'évolution du score de santé en fonction de la granularité choisie
                 health_score_df = processor.manufacturer_health_score_over_time(
                     selected_manufacturer,
                     selected_category,
-                    analysis_start,
-                    analysis_end,
+                    start_date_obj,
+                    end_date_obj,
                     top_n_stores=10,
-                    freq='M'  # Analyse mensuelle
+                    freq=granularity  # Utiliser la granularité sélectionnée
                 )
                 
-                if not health_score_df.empty and 'period' in health_score_df.columns and 'health_score' in health_score_df.columns:
-                    # Créer le graphique d'évolution
-                    fig = px.line(
-                        health_score_df,
-                        x='period',
-                        y='health_score',
-                        labels={
-                            'period': 'Mois',
-                            'health_score': 'Score de santé'
-                        },
-                        title=f"Évolution du score de santé du fabricant {selected_manufacturer} dans la catégorie {selected_category}"
-                    )
-                    
-                    # Formater l'axe Y en pourcentage
-                    fig.update_layout(
-                        xaxis_title="Mois",
-                        yaxis_title="Score de santé",
-                        yaxis_tickformat='.1%',
-                        hovermode="x unified"
-                    )
-                    
-                    st.plotly_chart(fig, use_container_width=True)
-                    
-                    # Afficher les données détaillées
-                    with st.expander("Voir les données détaillées"):
-                        display_df = health_score_df.copy()
-                        display_df['health_score'] = display_df['health_score'].apply(lambda x: f"{x:.2%}")
-                        st.dataframe(display_df)
+                # Vérifier si le DataFrame contient des données
+                if not health_score_df.empty:
+                    # S'assurer que les colonnes requises existent
+                    if 'period' in health_score_df.columns and 'health_score' in health_score_df.columns:
+                        # Créer le graphique d'évolution avec ylim pour éviter le problème d'échelle
+                        fig = px.line(
+                            health_score_df,
+                            x='period',
+                            y='health_score',
+                            labels={
+                                'period': time_labels[granularity],
+                                'health_score': 'Score de santé'
+                            },
+                            title=f"Évolution du score de santé du fabricant {selected_manufacturer} par {time_labels[granularity].lower()}"
+                        )
+                        
+                        # Forcer les limites de l'axe Y pour une meilleure visualisation
+                        fig.update_layout(
+                            xaxis_title=time_labels[granularity],
+                            yaxis_title="Score de santé",
+                            yaxis=dict(
+                                range=[0, 1],
+                                tickformat='.0%'
+                            ),
+                            hovermode="x unified"
+                        )
+                        
+                        # Adapter le format de date en fonction de la granularité
+                        if granularity == 'D':
+                            date_format = '%d %b %Y'
+                        elif granularity == 'W':
+                            date_format = 'Semaine %W, %Y'
+                        else:  # 'M'
+                            date_format = '%b %Y'
+                            
+                        fig.update_xaxes(
+                            tickformat=date_format
+                        )
+                        
+                        st.plotly_chart(fig, use_container_width=True)
+                        
+                        # Afficher les données détaillées
+                        with st.expander("Voir les données détaillées"):
+                            display_df = health_score_df.copy()
+                            display_df['health_score'] = display_df['health_score'].apply(lambda x: f"{x:.2%}")
+                            st.dataframe(display_df)
+                    else:
+                        st.warning(f"⚠️ Les colonnes requises (period, health_score) ne sont pas disponibles dans le DataFrame.")
                 else:
                     st.warning("⚠️ Aucune donnée disponible pour l'analyse du score de santé.")
             except Exception as e:
                 st.error(f"Erreur lors de l'analyse du score de santé: {str(e)}")
-                st.error(f"Détails: {e.__class__.__name__}")
+                import traceback
+                st.error(traceback.format_exc())
 
         with tab4:
             st.subheader("Données brutes")
