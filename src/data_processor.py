@@ -111,52 +111,80 @@ class DataProcessor:
         print("Avertissement: Impossible d'ajouter une colonne de date.")
         return df
     
-    def count_market_actors_by_category(self, category_id: int) -> int:
+    def count_market_actors_by_category(self, category_id: int, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None) -> int:
         """
         Calcule le nombre d'acteurs du marché pour une catégorie spécifique
         
         Paramètres:
             category_id: ID de la catégorie de produit
+            start_date: Date de début pour le filtrage (optionnel)
+            end_date: Date de fin pour le filtrage (optionnel)
             
         Retourne:
-            Nombre d'acteurs
+            Nombre de fabricants différents dans la catégorie
         """
         if self.product_df is None:
-            raise ValueError("DataFrame de produits non défini")
+            return 0
+            
+        # Ajouter des colonnes de date si nécessaire
+        prod_df_with_date = self.add_date_column(self.product_df.copy())
         
-        # Filtre les produits de la catégorie spécifique
-        category_products = self.product_df[self.product_df['cat_id'] == category_id]
+        # Filtrer les produits par catégorie
+        category_filter = prod_df_with_date['cat_id'] == category_id
+        filtered_products = prod_df_with_date[category_filter]
         
-        # Calcule le nombre de fabricants distincts
-        return category_products['fab_id'].nunique()
+        # Appliquer le filtre de date si spécifié
+        if start_date and end_date and 'date_formatted' in prod_df_with_date.columns:
+            date_filter = (
+                (filtered_products['date_formatted'] >= start_date) &
+                (filtered_products['date_formatted'] <= end_date)
+            )
+            filtered_products = filtered_products[date_filter]
+        
+        # Compter les fabricants uniques
+        return filtered_products['fab_id'].nunique()
     
-    def avg_products_per_manufacturer_by_category(self, category_id: int) -> float:
+    def avg_products_per_manufacturer_by_category(self, category_id: int, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None) -> float:
         """
-        Calcule le nombre moyen de produits par fabricant pour une catégorie spécifique
+        Calcule le nombre moyen de produits par fabricant dans une catégorie spécifique
         
         Paramètres:
             category_id: ID de la catégorie de produit
+            start_date: Date de début pour le filtrage (optionnel)
+            end_date: Date de fin pour le filtrage (optionnel)
             
         Retourne:
-            Nombre moyen de produits
+            Nombre moyen de produits par fabricant
         """
         if self.product_df is None:
-            raise ValueError("DataFrame de produits non défini")
-        
-        # Filtre les produits de la catégorie spécifique
-        category_products = self.product_df[self.product_df['cat_id'] == category_id]
-        
-        if category_products.empty:
             return 0.0
             
-        # Pour chaque fabricant, calcule le nombre de produits
-        products_per_manufacturer = category_products.groupby('fab_id').size()
+        # Ajouter des colonnes de date si nécessaire
+        prod_df_with_date = self.add_date_column(self.product_df.copy())
         
-        # Si aucun fabricant n'est trouvé
+        # Filtrer les produits par catégorie
+        category_filter = prod_df_with_date['cat_id'] == category_id
+        filtered_products = prod_df_with_date[category_filter]
+        
+        # Appliquer le filtre de date si spécifié
+        if start_date and end_date and 'date_formatted' in prod_df_with_date.columns:
+            date_filter = (
+                (filtered_products['date_formatted'] >= start_date) &
+                (filtered_products['date_formatted'] <= end_date)
+            )
+            filtered_products = filtered_products[date_filter]
+            
+        # Si aucun produit après filtrage, retourner 0
+        if filtered_products.empty:
+            return 0.0
+            
+        # Compter les produits par fabricant
+        products_per_manufacturer = filtered_products.groupby('fab_id')['prod_id'].nunique()
+        
+        # Calculer la moyenne des produits par fabricant
         if len(products_per_manufacturer) == 0:
             return 0.0
             
-        # Calcule la moyenne
         return products_per_manufacturer.mean()
     
     def top_stores(self, n: int = 10) -> pd.DataFrame:
@@ -180,19 +208,36 @@ class DataProcessor:
         # Retourne les N premiers magasins
         return store_counts.head(n)
     
-    def manufacturer_health_score(self, manufacturer_id: int, category_id: int, top_n_stores: int = 10) -> float:
+    def manufacturer_health_score(self, manufacturer_id: int, category_id: int, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None, top_n_stores: int = 10) -> float:
         """
         Calcule le score de santé d'un fabricant pour une catégorie spécifique et les N premiers magasins
         
         Paramètres:
             manufacturer_id: ID du fabricant
             category_id: ID de la catégorie de produit
+            start_date: Date de début pour le filtrage (optionnel)
+            end_date: Date de fin pour le filtrage (optionnel)
             top_n_stores: Nombre des premiers magasins à considérer
             
         Retourne:
             Score de santé (proportion moyenne de produits du fabricant parmi tous les produits)
         """
         if self.sale_df is None or self.product_df is None:
+            return 0.0
+        
+        # Ajouter des colonnes de date si nécessaire
+        sale_df_with_date = self.add_date_column(self.sale_df.copy())
+        
+        # Filtrer par date si spécifié
+        filtered_sales = sale_df_with_date
+        if start_date and end_date and 'date_formatted' in sale_df_with_date.columns:
+            filtered_sales = sale_df_with_date[
+                (sale_df_with_date['date_formatted'] >= start_date) &
+                (sale_df_with_date['date_formatted'] <= end_date)
+            ]
+        
+        # Si aucune vente après filtrage, retourner 0
+        if filtered_sales.empty:
             return 0.0
             
         # Vérifier si le fabricant a des produits dans cette catégorie
@@ -201,44 +246,43 @@ class DataProcessor:
             (self.product_df['fab_id'] == manufacturer_id)
         ]
         
-        if len(manufacturer_products) == 0:
-            return 0.0
-            
-        # Obtient les N premiers magasins basés sur le nombre total d'accords de vente
-        top_stores_df = self.top_stores(top_n_stores)
-        top_store_ids = top_stores_df['mag_id'].tolist()
-        
-        # Filtre les accords de vente pour la catégorie spécifique et ces magasins
-        category_sales = self.sale_df[
-            (self.sale_df['cat_id'] == category_id) & 
-            (self.sale_df['mag_id'].isin(top_store_ids))
-        ]
-        
-        if len(category_sales) == 0:
+        if manufacturer_products.empty:
             return 0.0
         
-        # Calcule le score pour chaque magasin
+        # Obtenir les identifiants des N premiers magasins
+        top_stores = filtered_sales['mag_id'].value_counts().head(top_n_stores).index.tolist()
+        
+        # Si aucun magasin trouvé, retourner 0
+        if not top_stores:
+            return 0.0
+        
+        # Calculer le score pour chaque magasin top
         store_scores = []
-        for store_id in top_store_ids:
-            store_sales = category_sales[category_sales['mag_id'] == store_id]
+        
+        for store_id in top_stores:
+            # Filtrer les ventes pour le magasin et la catégorie
+            store_sales = filtered_sales[
+                (filtered_sales['mag_id'] == store_id) & 
+                (filtered_sales['cat_id'] == category_id)
+            ]
             
-            if len(store_sales) == 0:
+            if store_sales.empty:
                 store_scores.append(0.0)
                 continue
                 
-            # Nombre total de produits uniques dans ce magasin pour cette catégorie
-            total_products = store_sales['prod_id'].nunique()
+            # Produits uniques vendus dans ce magasin pour cette catégorie
+            unique_products = store_sales['prod_id'].nunique()
             
-            # Nombre de produits uniques de ce fabricant dans ce magasin pour cette catégorie
-            manufacturer_products = store_sales[
+            # Produits du fabricant vendus dans ce magasin pour cette catégorie
+            manufacturer_sold = store_sales[
                 store_sales['fab_id'] == manufacturer_id
             ]['prod_id'].nunique()
             
-            # Calcule le score pour ce magasin
-            store_score = manufacturer_products / total_products if total_products > 0 else 0.0
+            # Calculer le score pour ce magasin
+            store_score = manufacturer_sold / unique_products if unique_products > 0 else 0.0
             store_scores.append(store_score)
         
-        # Retourne la moyenne des scores de tous les magasins
+        # Moyenne des scores de tous les magasins
         return sum(store_scores) / len(store_scores) if store_scores else 0.0
     
     def market_actors_over_time(self, category_id: int, start_date: datetime, end_date: datetime, freq: str = 'M') -> pd.DataFrame:
@@ -282,13 +326,15 @@ class DataProcessor:
         
         return pd.DataFrame(results)
     
-    def manufacturer_share_in_category(self, manufacturer_id: int, category_id: int) -> float:
+    def manufacturer_share_in_category(self, manufacturer_id: int, category_id: int, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None) -> float:
         """
         Calcule la part de marché d'un fabricant dans une catégorie spécifique
         
         Paramètres:
             manufacturer_id: ID du fabricant
             category_id: ID de la catégorie de produit
+            start_date: Date de début pour le filtrage (optionnel)
+            end_date: Date de fin pour le filtrage (optionnel)
             
         Retourne:
             Proportion des produits du fabricant parmi tous les produits de la catégorie
@@ -296,8 +342,20 @@ class DataProcessor:
         if self.product_df is None:
             return 0.0
             
-        # Filtrer les produits de la catégorie
-        category_products = self.product_df[self.product_df['cat_id'] == category_id]
+        # Ajouter des colonnes de date si nécessaire
+        prod_df_with_date = self.add_date_column(self.product_df.copy())
+        
+        # Filtrer les produits par catégorie
+        category_filter = prod_df_with_date['cat_id'] == category_id
+        category_products = prod_df_with_date[category_filter]
+        
+        # Appliquer le filtre de date si spécifié
+        if start_date and end_date and 'date_formatted' in prod_df_with_date.columns:
+            date_filter = (
+                (category_products['date_formatted'] >= start_date) &
+                (category_products['date_formatted'] <= end_date)
+            )
+            category_products = category_products[date_filter]
         
         if category_products.empty:
             return 0.0
@@ -308,30 +366,44 @@ class DataProcessor:
             category_products['fab_id'] == manufacturer_id
         ]['prod_id'].nunique()
         
-        # Calculer la proportion
         return manufacturer_products / total_products if total_products > 0 else 0.0
     
-    def manufacturer_products_in_category(self, manufacturer_id: int, category_id: int) -> int:
+    def manufacturer_products_in_category(self, manufacturer_id: int, category_id: int, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None) -> int:
         """
-        Calcule le nombre de produits d'un fabricant dans une catégorie spécifique
+        Compte le nombre de produits d'un fabricant dans une catégorie spécifique
         
         Paramètres:
             manufacturer_id: ID du fabricant
-            category_id: ID de la catégorie de produit
+            category_id: ID de la catégorie
+            start_date: Date de début pour le filtrage (optionnel)
+            end_date: Date de fin pour le filtrage (optionnel)
             
         Retourne:
             Nombre de produits
         """
         if self.product_df is None:
-            raise ValueError("DataFrame de produits non défini")
+            return 0
+        
+        # Ajouter des colonnes de date si nécessaire
+        prod_df_with_date = self.add_date_column(self.product_df.copy())
         
         # Filtre les produits du fabricant dans la catégorie spécifique
-        products = self.product_df[
-            (self.product_df['cat_id'] == category_id) & 
-            (self.product_df['fab_id'] == manufacturer_id)
-        ]
+        base_filter = (
+            (prod_df_with_date['cat_id'] == category_id) & 
+            (prod_df_with_date['fab_id'] == manufacturer_id)
+        )
+        filtered_products = prod_df_with_date[base_filter]
         
-        return len(products)
+        # Appliquer le filtre de date si spécifié
+        if start_date and end_date and 'date_formatted' in prod_df_with_date.columns:
+            date_filter = (
+                (filtered_products['date_formatted'] >= start_date) &
+                (filtered_products['date_formatted'] <= end_date)
+            )
+            filtered_products = filtered_products[date_filter]
+        
+        # Retourner le nombre de produits uniques
+        return filtered_products['prod_id'].nunique()
     
     def get_winter_discount_period(self, year: int = 2022) -> Tuple[datetime, datetime]:
         """

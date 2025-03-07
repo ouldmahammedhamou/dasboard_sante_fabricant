@@ -364,8 +364,15 @@ def main():
             col1, col2, col3 = st.columns(3)
             
             with col1:
+                # 传递日期范围
+                start_date_obj = pd.Timestamp(selected_start_date).to_pydatetime()
+                end_date_obj = pd.Timestamp(selected_end_date).to_pydatetime()
+                
                 manufacturer_products = processor.manufacturer_products_in_category(
-                    selected_manufacturer, selected_category
+                    selected_manufacturer, 
+                    selected_category,
+                    start_date=start_date_obj,
+                    end_date=end_date_obj
                 )
                 st.info("Produits du fabricant")
                 st.metric(
@@ -374,7 +381,11 @@ def main():
                     help=f"Nombre de produits du fabricant {selected_manufacturer} dans la catégorie {selected_category}"
                 )
                 
-                category_avg = processor.avg_products_per_manufacturer_by_category(selected_category)
+                category_avg = processor.avg_products_per_manufacturer_by_category(
+                    selected_category,
+                    start_date=start_date_obj,
+                    end_date=end_date_obj
+                )
                 if manufacturer_products <= category_avg * 0.5:
                     st.markdown("<p class='danger-metric'>❗ Peu de produits par rapport à la moyenne</p>", unsafe_allow_html=True)
                 elif manufacturer_products <= category_avg:
@@ -384,7 +395,11 @@ def main():
             
             with col2:
                 st.info("Acteurs dans cette catégorie")
-                market_actors = processor.count_market_actors_by_category(selected_category)
+                market_actors = processor.count_market_actors_by_category(
+                    selected_category,
+                    start_date=start_date_obj,
+                    end_date=end_date_obj
+                )
                 st.metric(
                     label="Nombre de fabricants", 
                     value=market_actors,
@@ -401,7 +416,11 @@ def main():
                 
             with col3:
                 st.info("Produits par fabricant")
-                avg_products = processor.avg_products_per_manufacturer_by_category(selected_category)
+                avg_products = processor.avg_products_per_manufacturer_by_category(
+                    selected_category,
+                    start_date=start_date_obj,
+                    end_date=end_date_obj
+                )
                 st.metric(
                     label="Moyenne de produits", 
                     value=f"{avg_products:.2f}",
@@ -417,7 +436,12 @@ def main():
                     st.markdown("<p class='success-metric'>✅ Bonne diversité de produits</p>", unsafe_allow_html=True)
             
             st.subheader("Santé du fabricant")
-            health_score = processor.manufacturer_health_score(selected_manufacturer, selected_category)
+            health_score = processor.manufacturer_health_score(
+                selected_manufacturer, 
+                selected_category,
+                start_date=start_date_obj,
+                end_date=end_date_obj
+            )
             
             # Afficher le score de santé
             col_score, col_chart = st.columns([1, 3])
@@ -434,24 +458,34 @@ def main():
             
             # Graphique de la part de marché
             with col_chart:
-                total_products = len(filtered_products)
-                if total_products > 0:
-                    market_share = manufacturer_products / total_products
-                    
-                    # Créer un graphique en anneau pour la part de marché
-                    fig = go.Figure(go.Pie(
-                        values=[market_share * 100, (1 - market_share) * 100],
-                        labels=[f"Fabricant {selected_manufacturer}", "Autres fabricants"],
-                        hole=0.6,
-                        marker_colors=['#1E88E5', '#E0E0E0']
-                    ))
-                    
-                    fig.update_layout(
-                        title=f"Part de marché du fabricant {selected_manufacturer} dans la catégorie {selected_category}",
-                        annotations=[dict(text=f"{market_share:.1%}", x=0.5, y=0.5, font_size=20, showarrow=False)]
-                    )
-                    
-                    st.plotly_chart(fig, use_container_width=True)
+                # Calculer la part de marché
+                market_share = processor.manufacturer_share_in_category(
+                    selected_manufacturer, 
+                    selected_category,
+                    start_date=start_date_obj,
+                    end_date=end_date_obj
+                )
+                
+                # Créer un graphique en anneau pour visualiser la part de marché
+                fig = go.Figure(go.Pie(
+                    labels=['Autres fabricants', f'Fabricant {selected_manufacturer}'],
+                    values=[1 - market_share, market_share],
+                    hole=0.7,
+                    marker_colors=['#E5E5E5', '#3366CC']
+                ))
+                
+                # Centrer le texte au milieu du graphique
+                fig.update_layout(
+                    title=f"Part de marché du fabricant {selected_manufacturer} dans la catégorie {selected_category}",
+                    annotations=[dict(
+                        text=f"{market_share:.1%}",
+                        x=0.5, y=0.5,
+                        font_size=24,
+                        showarrow=False
+                    )]
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
 
         with tab2:
             st.subheader("Présence dans les principaux magasins")
