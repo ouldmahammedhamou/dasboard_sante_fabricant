@@ -523,52 +523,161 @@ def main():
                 st.warning("⚠️ Aucune donnée de magasin disponible.")
                 
         with tab3:
-            st.subheader("Évolution temporelle")
+            st.subheader("Analyse temporelle")
+            
+            # Analyse des fabricants par mois (question 2.1)
+            # Cette visualisation montre comment le nombre de fabricants différents évolue chaque mois,
+            # permettant d'identifier les périodes de forte ou faible concurrence.
+            st.write(f"#### 2.1 Évolution mensuelle des fabricants - Catégorie {selected_category}")
             
             try:
-                # Convertir les dates sélectionnées
-                start_date = pd.to_datetime(selected_start_date)
-                end_date = pd.to_datetime(selected_end_date)
+                start_date_obj = pd.Timestamp(start_date).to_pydatetime()
+                end_date_obj = pd.Timestamp(end_date).to_pydatetime()
                 
-                # Debug: afficher les informations
-                st.sidebar.write("Debug info:")
-                st.sidebar.write(f"Dates: {start_date} to {end_date}")
-                st.sidebar.write(f"Catégorie: {selected_category}")
-                st.sidebar.write(f"Granularité: {granularity}")
-                
-                # Obtenir l'évolution des acteurs
+                # Obtenir les données d'évolution par mois
                 evolution_df = processor.market_actors_over_time(
-                    category_id=selected_category,
-                    start_date=start_date,
-                    end_date=end_date,
-                    freq=granularity
+                    selected_category,
+                    start_date_obj,
+                    end_date_obj,
+                    freq='M'  # Analyse mensuelle
                 )
                 
                 if not evolution_df.empty:
-                    st.write("Données d'évolution:", evolution_df)
-                    
-                    # Créer le graphique
+                    # Créer le graphique d'évolution
                     fig = px.line(
                         evolution_df,
                         x='period_start',
                         y='actor_count',
-                        title=f"Évolution du nombre d'acteurs - Catégorie {selected_category}",
                         labels={
-                            'period_start': 'Période',
-                            'actor_count': "Nombre d'acteurs"
-                        }
+                            'period_start': 'Mois',
+                            'actor_count': 'Nombre de fabricants'
+                        },
+                        title=f"Nombre de fabricants différents par mois dans la catégorie {selected_category}"
                     )
-                    st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.warning("⚠️ Aucune donnée d'évolution disponible.")
                     
+                    fig.update_layout(
+                        xaxis_title="Mois",
+                        yaxis_title="Nombre de fabricants",
+                        hovermode="x unified"
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Afficher les données détaillées
+                    with st.expander("Voir les données détaillées"):
+                        st.dataframe(evolution_df)
+                else:
+                    st.warning("⚠️ Aucune donnée disponible pour l'analyse temporelle.")
             except Exception as e:
-                st.error(f"Erreur lors du calcul de l'évolution des acteurs: {str(e)}")
-                # Afficher plus de détails sur l'erreur
-                st.sidebar.error(f"Détails de l'erreur: {e.__class__.__name__}")
+                st.error(f"Erreur lors de l'analyse temporelle: {str(e)}")
                 if processor.product_df is not None:
                     st.sidebar.write("Colonnes disponibles:", processor.product_df.columns.tolist())
+            
+            # Analyse des périodes de soldes (questions 2.2 et 2.3)
+            # Cette section compare les performances des fabricants et identifie les magasins
+            # les plus actifs pendant les périodes de soldes d'hiver et d'été.
+            st.write("#### 2.2 & 2.3 Analyse des périodes de soldes")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Nombre moyen de produits pendant les soldes d'hiver (question 2.2)
+                winter_avg = processor.avg_products_in_discount_period(
+                    selected_category, is_winter=True
+                )
+                st.metric(
+                    label="Produits moyens en soldes d'hiver", 
+                    value=f"{winter_avg:.2f}",
+                    help="Nombre moyen de produits par fabricant durant les soldes d'hiver (12 janvier - 8 février 2022)"
+                )
                 
+                # Top 10 magasins pendant les soldes d'hiver (question 2.3)
+                st.write("**Top 10 magasins en soldes d'hiver**")
+                winter_top_stores = processor.top_stores_in_discount_period(
+                    category_id=selected_category, n=10, is_winter=True
+                )
+                
+                if not winter_top_stores.empty:
+                    # Afficher les données
+                    st.dataframe(winter_top_stores)
+                else:
+                    st.warning("⚠️ Aucune donnée pour les soldes d'hiver.")
+            
+            with col2:
+                # Nombre moyen de produits pendant les soldes d'été
+                summer_avg = processor.avg_products_in_discount_period(
+                    selected_category, is_winter=False
+                )
+                st.metric(
+                    label="Produits moyens en soldes d'été", 
+                    value=f"{summer_avg:.2f}",
+                    help="Nombre moyen de produits par fabricant durant les soldes d'été (22 juin - 19 juillet 2022)"
+                )
+                
+                # Top 10 magasins pendant les soldes d'été (question 2.3)
+                st.write("**Top 10 magasins en soldes d'été**")
+                summer_top_stores = processor.top_stores_in_discount_period(
+                    category_id=selected_category, n=10, is_winter=False
+                )
+                
+                if not summer_top_stores.empty:
+                    # Afficher les données
+                    st.dataframe(summer_top_stores)
+                else:
+                    st.warning("⚠️ Aucune donnée pour les soldes d'été.")
+            
+            # Évolution du score de santé au fil du temps (question 2.4)
+            # Cette visualisation montre comment la position concurrentielle du fabricant
+            # évolue chaque mois, par rapport aux produits concurrents dans les mêmes magasins.
+            st.write(f"#### 2.4 Évolution du score de santé - Fabricant {selected_manufacturer}, Catégorie {selected_category}")
+            
+            try:
+                analysis_start = datetime(2022, 1, 1)
+                analysis_end = pd.Timestamp(end_date).to_pydatetime()
+                
+                health_score_df = processor.manufacturer_health_score_over_time(
+                    selected_manufacturer,
+                    selected_category,
+                    analysis_start,
+                    analysis_end,
+                    top_n_stores=10,
+                    freq='M'  # Analyse mensuelle
+                )
+                
+                if not health_score_df.empty and 'period' in health_score_df.columns and 'health_score' in health_score_df.columns:
+                    # Créer le graphique d'évolution
+                    fig = px.line(
+                        health_score_df,
+                        x='period',
+                        y='health_score',
+                        labels={
+                            'period': 'Mois',
+                            'health_score': 'Score de santé'
+                        },
+                        title=f"Évolution du score de santé du fabricant {selected_manufacturer} dans la catégorie {selected_category}"
+                    )
+                    
+                    # Formater l'axe Y en pourcentage
+                    fig.update_layout(
+                        xaxis_title="Mois",
+                        yaxis_title="Score de santé",
+                        yaxis_tickformat='.1%',
+                        hovermode="x unified"
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Afficher les données détaillées
+                    with st.expander("Voir les données détaillées"):
+                        display_df = health_score_df.copy()
+                        display_df['health_score'] = display_df['health_score'].apply(lambda x: f"{x:.2%}")
+                        st.dataframe(display_df)
+                else:
+                    st.warning("⚠️ Aucune donnée disponible pour l'analyse du score de santé.")
+            except Exception as e:
+                st.error(f"Erreur lors de l'analyse du score de santé: {str(e)}")
+                st.error(f"Détails: {e.__class__.__name__}")
+
         with tab4:
             st.subheader("Données brutes")
             

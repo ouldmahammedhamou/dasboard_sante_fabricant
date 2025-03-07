@@ -1,11 +1,13 @@
 """
-Module de traitement des données - Responsable de l'analyse des données et du calcul des KPI
+Module de traitement des données - Contient les fonctions de traitement et d'analyse des données
 """
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Any, Tuple, Optional
-from datetime import datetime
+from typing import Dict, List, Any, Tuple, Optional, Union
+from datetime import datetime, timedelta, date
 import random
+import json
+import os
 
 class DataProcessor:
     """Classe pour traiter les données de produits et d'accords de vente et calculer les KPI"""
@@ -330,6 +332,247 @@ class DataProcessor:
         ]
         
         return len(products)
+    
+    def get_winter_discount_period(self, year: int = 2022) -> Tuple[datetime, datetime]:
+        """
+        Retourne la période de soldes d'hiver pour une année donnée
+        
+        Paramètres:
+            year: Année pour laquelle calculer la période de soldes
+            
+        Retourne:
+            Tuple (date de début, date de fin)
+        """
+        # Période de soldes d'hiver: 12 janvier - 8 février
+        return (datetime(year, 1, 12), datetime(year, 2, 8))
+    
+    def get_summer_discount_period(self, year: int = 2022) -> Tuple[datetime, datetime]:
+        """
+        Retourne la période de soldes d'été pour une année donnée
+        
+        Paramètres:
+            year: Année pour laquelle calculer la période de soldes
+            
+        Retourne:
+            Tuple (date de début, date de fin)
+        """
+        # Période de soldes d'été: 22 juin - 19 juillet
+        return (datetime(year, 6, 22), datetime(year, 7, 19))
+    
+    def avg_products_in_discount_period(self, category_id: int, is_winter: bool = True, year: int = 2022) -> float:
+        """
+        Calcule le nombre moyen de produits par fabricant dans une catégorie pendant une période de soldes
+        
+        Paramètres:
+            category_id: ID de la catégorie de produit
+            is_winter: Si True, calcule pour les soldes d'hiver, sinon pour les soldes d'été
+            year: Année pour laquelle calculer
+            
+        Retourne:
+            Nombre moyen de produits
+        """
+        if self.product_df is None:
+            return 0.0
+        
+        # Obtenir la période de soldes
+        if is_winter:
+            start_date, end_date = self.get_winter_discount_period(year)
+        else:
+            start_date, end_date = self.get_summer_discount_period(year)
+        
+        # S'assurer que nous avons une colonne de date
+        product_df_with_date = self.add_date_column(self.product_df)
+        
+        # Vérifier si la colonne date existe, sinon utiliser date_formatted
+        date_col = 'date' if 'date' in product_df_with_date.columns else 'date_formatted'
+        
+        # Vérifier si la colonne existe
+        if date_col not in product_df_with_date.columns:
+            print(f"Avertissement: Colonne {date_col} introuvable dans le DataFrame des produits.")
+            return 0.0
+        
+        # Filtrer par catégorie et plage de dates
+        filtered_products = product_df_with_date[
+            (product_df_with_date['cat_id'] == category_id) &
+            (product_df_with_date[date_col] >= start_date) &
+            (product_df_with_date[date_col] <= end_date)
+        ]
+        
+        if filtered_products.empty:
+            return 0.0
+        
+        # Pour chaque fabricant, calculer le nombre de produits
+        products_per_manufacturer = filtered_products.groupby('fab_id')['prod_id'].nunique()
+        
+        # Si aucun fabricant n'est trouvé
+        if len(products_per_manufacturer) == 0:
+            return 0.0
+            
+        # Calculer la moyenne
+        return products_per_manufacturer.mean()
+    
+    def top_stores_in_discount_period(self, category_id: int = None, n: int = 10, is_winter: bool = True, year: int = 2022) -> pd.DataFrame:
+        """
+        Identifie les N premiers magasins pendant une période de soldes
+        
+        Paramètres:
+            category_id: ID de la catégorie de produit (si None, considère toutes les catégories)
+            n: Nombre de magasins à retourner
+            is_winter: Si True, calcule pour les soldes d'hiver, sinon pour les soldes d'été
+            year: Année pour laquelle calculer
+            
+        Retourne:
+            DataFrame contenant les N premiers magasins
+        """
+        if self.sale_df is None:
+            return pd.DataFrame(columns=['mag_id', 'agreement_count'])
+        
+        # Obtenir la période de soldes
+        if is_winter:
+            start_date, end_date = self.get_winter_discount_period(year)
+        else:
+            start_date, end_date = self.get_summer_discount_period(year)
+        
+        # S'assurer que nous avons une colonne de date
+        sale_df_with_date = self.add_date_column(self.sale_df)
+        
+        # Vérifier si la colonne date existe, sinon utiliser date_formatted
+        date_col = 'date' if 'date' in sale_df_with_date.columns else 'date_formatted'
+        
+        # Vérifier si la colonne existe
+        if date_col not in sale_df_with_date.columns:
+            print(f"Avertissement: Colonne {date_col} introuvable dans le DataFrame des ventes.")
+            return pd.DataFrame(columns=['mag_id', 'agreement_count'])
+        
+        # Filtrer par plage de dates
+        filtered_sales = sale_df_with_date[
+            (sale_df_with_date[date_col] >= start_date) &
+            (sale_df_with_date[date_col] <= end_date)
+        ]
+        
+        # Si une catégorie est spécifiée, filtrer par catégorie
+        if category_id is not None:
+            filtered_sales = filtered_sales[filtered_sales['cat_id'] == category_id]
+        
+        if filtered_sales.empty:
+            return pd.DataFrame(columns=['mag_id', 'agreement_count'])
+        
+        # Calculer le nombre d'accords de vente pour chaque magasin
+        store_counts = filtered_sales['mag_id'].value_counts().reset_index()
+        store_counts.columns = ['mag_id', 'agreement_count']
+        
+        # Retourner les N premiers magasins
+        return store_counts.head(n)
+    
+    def manufacturer_health_score_over_time(self, manufacturer_id: int, category_id: int, 
+                                           start_date: datetime, end_date: datetime,
+                                           top_n_stores: int = 10, freq: str = 'M') -> pd.DataFrame:
+        """
+        Calcule l'évolution du score de santé d'un fabricant au fil du temps
+        
+        Paramètres:
+            manufacturer_id: ID du fabricant
+            category_id: ID de la catégorie de produit
+            start_date: Date de début de l'analyse
+            end_date: Date de fin de l'analyse
+            top_n_stores: Nombre des premiers magasins à considérer
+            freq: Fréquence d'agrégation ('D' pour jour, 'W' pour semaine, 'M' pour mois)
+            
+        Retourne:
+            DataFrame avec le score de santé par période
+        """
+        if self.sale_df is None or self.product_df is None:
+            return pd.DataFrame(columns=['period', 'health_score'])
+        
+        # S'assurer que nous avons une colonne de date
+        sale_df_with_date = self.add_date_column(self.sale_df)
+        
+        # Vérifier si la colonne date existe, sinon utiliser date_formatted
+        date_col = 'date' if 'date' in sale_df_with_date.columns else 'date_formatted'
+        
+        # Vérifier si la colonne existe
+        if date_col not in sale_df_with_date.columns:
+            print(f"Avertissement: Colonne {date_col} introuvable. Impossible de réaliser l'analyse temporelle.")
+            return pd.DataFrame(columns=['period', 'health_score'])
+        
+        # Créer une liste de périodes entre start_date et end_date selon la fréquence
+        if freq == 'D':
+            periods = pd.date_range(start=start_date, end=end_date, freq='D')
+        elif freq == 'W':
+            periods = pd.date_range(start=start_date, end=end_date, freq='W')
+        else:  # default to 'M'
+            periods = pd.date_range(start=start_date, end=end_date, freq='M')
+        
+        # Initialiser le DataFrame résultat
+        result = pd.DataFrame(columns=['period', 'health_score'])
+        
+        # Pour chaque période, calculer le score de santé
+        for period_start in periods:
+            if freq == 'D':
+                period_end = period_start
+            elif freq == 'W':
+                period_end = period_start + pd.Timedelta(days=6)
+            else:  # 'M'
+                period_end = period_start + pd.offsets.MonthEnd(1)
+                
+            # Filtrer les ventes pour cette période
+            period_sales = sale_df_with_date[
+                (sale_df_with_date[date_col] >= period_start) &
+                (sale_df_with_date[date_col] <= period_end)
+            ]
+            
+            # Si pas de ventes pour cette période, score à 0
+            if len(period_sales) == 0:
+                new_row = pd.DataFrame({'period': [period_start], 'health_score': [0.0]})
+                result = pd.concat([result, new_row], ignore_index=True)
+                continue
+            
+            # Obtenir les top N magasins pour cette période
+            top_stores_df = period_sales['mag_id'].value_counts().head(top_n_stores).reset_index()
+            top_stores_df.columns = ['mag_id', 'count']
+            top_store_ids = top_stores_df['mag_id'].tolist()
+            
+            # Filtrer les ventes pour la catégorie spécifique et ces magasins
+            category_sales = period_sales[
+                (period_sales['cat_id'] == category_id) & 
+                (period_sales['mag_id'].isin(top_store_ids))
+            ]
+            
+            # Si pas de ventes pour cette catégorie et ces magasins, score à 0
+            if len(category_sales) == 0:
+                new_row = pd.DataFrame({'period': [period_start], 'health_score': [0.0]})
+                result = pd.concat([result, new_row], ignore_index=True)
+                continue
+            
+            # Calculer le score pour chaque magasin
+            store_scores = []
+            for store_id in top_store_ids:
+                store_sales = category_sales[category_sales['mag_id'] == store_id]
+                
+                if len(store_sales) == 0:
+                    store_scores.append(0.0)
+                    continue
+                    
+                # Nombre total de produits uniques dans ce magasin pour cette catégorie
+                total_products = store_sales['prod_id'].nunique()
+                
+                # Nombre de produits uniques de ce fabricant dans ce magasin pour cette catégorie
+                manufacturer_products = store_sales[
+                    store_sales['fab_id'] == manufacturer_id
+                ]['prod_id'].nunique()
+                
+                # Calculer le score pour ce magasin
+                store_score = manufacturer_products / total_products if total_products > 0 else 0.0
+                store_scores.append(store_score)
+            
+            # Calculer la moyenne des scores de tous les magasins
+            avg_score = sum(store_scores) / len(store_scores) if store_scores else 0.0
+            
+            # Ajouter au résultat
+            new_row = pd.DataFrame({'period': [period_start], 'health_score': [avg_score]})
+            result = pd.concat([result, new_row], ignore_index=True)
+        
+        return result
 
 # Code de test
 if __name__ == "__main__":
