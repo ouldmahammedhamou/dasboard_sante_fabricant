@@ -111,9 +111,7 @@ def load_data_from_test_file(file_path: str, data_type: str) -> pd.DataFrame:
             # S'assurer que les colonnes date_formatted sont au format datetime
             if 'date_formatted' in df.columns:
                 df['date_formatted'] = pd.to_datetime(df['date_formatted'])
-                
-            # Informations sur les données chargées
-            st.sidebar.success(f"✅ Données CSV chargées avec succès: {len(df)} enregistrements")
+
             return df
             
         elif file_ext in ['.jsonl', '.json', '.orig']:
@@ -253,8 +251,8 @@ def main():
             return
     else:  # Fichier de test
         # Sélecteur de fichiers de test
-        test_product_file = st.sidebar.text_input("Fichier de données produits", "data/test_products.csv")
-        test_sale_file = st.sidebar.text_input("Fichier de données ventes", "data/test_sales.csv")
+        test_product_file = "data/test_products.csv"
+        test_sale_file = "data/test_sales.csv"
         
         # Charger les données depuis les fichiers de test
         product_df = load_data_from_test_file(test_product_file, "product")
@@ -263,17 +261,15 @@ def main():
         if product_df.empty or sale_df.empty:
             st.error("❌ Impossible de charger les données depuis les fichiers de test. Veuillez vérifier les chemins des fichiers.")
             return
-            
-        st.sidebar.info("ℹ️ Utilisation de données depuis les fichiers de test.")
     
     # Mettre à jour le processeur de données avec les données chargées
     processor.set_dataframes(product_df, sale_df)
     
     # Information sur les données
     st.sidebar.subheader("Information sur les données")
-    info_text = f"📊 Produits: {len(product_df)} enregistrements\n"
-    info_text += f"🛒 Accords de vente: {len(sale_df)} enregistrements"
-    st.sidebar.info(info_text)
+    
+    st.sidebar.info(f"📊 Produits: {len(product_df)}")
+    st.sidebar.info(f"🛒 Accords de vente: {len(sale_df)}")
     
     # Obtenir les valeurs uniques pour les filtres
     if not product_df.empty:
@@ -347,17 +343,8 @@ def main():
         
         # Statistiques de base
         st.sidebar.subheader("Statistiques de base")
-        filtered_info = f"📊 Produits filtrés: {len(filtered_products)}\n🛒 Accords de vente filtrés: {len(filtered_sales)}"
-        st.sidebar.info(filtered_info)
-        
-        # Afficher le top 10 des magasins dans la barre latérale
-        st.sidebar.subheader("Top 10 des magasins par nombre d'accords")
-        top_stores = processor.top_stores(10)
-        if not top_stores.empty:
-            # Créer une version abrégée pour la barre latérale
-            st.sidebar.dataframe(top_stores[['mag_id', 'agreement_count']], use_container_width=True)
-        else:
-            st.sidebar.warning("⚠️ Aucune donnée de magasin disponible.")
+        st.sidebar.info(f"📊 Produits filtrés: {len(filtered_products)}")
+        st.sidebar.info(f"🛒 Accords de vente filtrés: {len(filtered_sales)}")
             
         # Corps principal
         # Pour la catégorie et le fabricant sélectionnés
