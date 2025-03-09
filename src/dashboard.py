@@ -62,6 +62,44 @@ st.markdown("""
         padding: 10px;
         border-radius: 5px;
     }
+    [data-testid="stMetricLabel"] {
+        text-align: center;
+        font-weight: 600;
+    }
+    [data-testid="stMetricValue"] {
+        text-align: center;
+        font-size: 2.2rem;
+        font-weight: 700;
+    }
+    
+    .success-metric, .warning-metric, .danger-metric {
+        display: block;
+        text-align: center;
+        margin-top: 0.5rem;
+        padding: 0.3rem;
+        border-radius: 4px;
+    }
+    .success-metric {
+        background-color: rgba(0, 200, 83, 0.1);
+    }
+    .warning-metric {
+        background-color: rgba(255, 152, 0, 0.1);
+    }
+    .danger-metric {
+        background-color: rgba(244, 67, 54, 0.1);
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        justify-content: center;
+    }
+    
+    .js-plotly-plot {
+        margin: 0 auto;
+    }
+    
+    .legend {
+        text-align: center;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -86,7 +124,7 @@ def load_data_from_test_file(file_path: str, data_type: str) -> pd.DataFrame:
     Paramètres:
         file_path: Chemin du fichier
         data_type: Type de données ('product' ou 'sale')
-        
+    
     Retourne:
         DataFrame avec les données chargées
     """
@@ -264,7 +302,7 @@ def main():
     
     # Mettre à jour le processeur de données avec les données chargées
     processor.set_dataframes(product_df, sale_df)
-    
+
     # Information sur les données
     st.sidebar.subheader("Information sur les données")
     
@@ -360,11 +398,9 @@ def main():
         tab1, tab2, tab3, tab4 = st.tabs(["Graphiques KPI", "Top Magasins", "Évolution Temporelle", "Données Brutes"])
         
         with tab1:
-            # KPI 1: Nombre d'acteurs dans la catégorie
-            col1, col2, col3 = st.columns(3)
-            
+            col1, col2, col3 = st.columns([1, 1, 1])
+
             with col1:
-                # 传递日期范围
                 start_date_obj = pd.Timestamp(selected_start_date).to_pydatetime()
                 end_date_obj = pd.Timestamp(selected_end_date).to_pydatetime()
                 
@@ -387,12 +423,12 @@ def main():
                     end_date=end_date_obj
                 )
                 if manufacturer_products <= category_avg * 0.5:
-                    st.markdown("<p class='danger-metric'>❗ Peu de produits par rapport à la moyenne</p>", unsafe_allow_html=True)
+                    st.markdown("<p class='danger-metric' style='text-align: center; margin-top: 0.5rem;'>❗ Peu de produits par rapport à la moyenne</p>", unsafe_allow_html=True)
                 elif manufacturer_products <= category_avg:
-                    st.markdown("<p class='warning-metric'>⚠️ Nombre moyen de produits</p>", unsafe_allow_html=True)
+                    st.markdown("<p class='warning-metric' style='text-align: center; margin-top: 0.5rem;'>⚠️ Nombre moyen de produits</p>", unsafe_allow_html=True)
                 else:
-                    st.markdown("<p class='success-metric'>✅ Nombre élevé de produits</p>", unsafe_allow_html=True)
-            
+                    st.markdown("<p class='success-metric' style='text-align: center; margin-top: 0.5rem;'>✅ Nombre élevé de produits</p>", unsafe_allow_html=True)
+
             with col2:
                 st.info("Acteurs dans cette catégorie")
                 market_actors = processor.count_market_actors_by_category(
@@ -408,11 +444,11 @@ def main():
                 
                 # Évaluation de la concurrence
                 if market_actors <= 3:
-                    st.markdown("<p class='success-metric'>✅ Marché concentré</p>", unsafe_allow_html=True)
+                    st.markdown("<p class='success-metric' style='text-align: center; margin-top: 0.5rem;'>✅ Marché concentré</p>", unsafe_allow_html=True)
                 elif market_actors <= 7:
-                    st.markdown("<p class='warning-metric'>⚠️ Marché modérément compétitif</p>", unsafe_allow_html=True)
+                    st.markdown("<p class='warning-metric' style='text-align: center; margin-top: 0.5rem;'>⚠️ Marché modérément compétitif</p>", unsafe_allow_html=True)
                 else:
-                    st.markdown("<p class='danger-metric'>❗ Marché très compétitif</p>", unsafe_allow_html=True)
+                    st.markdown("<p class='danger-metric' style='text-align: center; margin-top: 0.5rem;'>❗ Marché très compétitif</p>", unsafe_allow_html=True)
                 
             with col3:
                 st.info("Produits par fabricant")
@@ -429,13 +465,19 @@ def main():
                 
                 # Évaluation de la diversité des produits
                 if avg_products <= 20:
-                    st.markdown("<p class='danger-metric'>❗ Faible diversité de produits</p>", unsafe_allow_html=True)
+                    st.markdown("<p class='danger-metric' style='text-align: center; margin-top: 0.5rem;'>❗ Faible diversité de produits</p>", unsafe_allow_html=True)
                 elif avg_products <= 50:
-                    st.markdown("<p class='warning-metric'>⚠️ Diversité de produits moyenne</p>", unsafe_allow_html=True)
+                    st.markdown("<p class='warning-metric' style='text-align: center; margin-top: 0.5rem;'>⚠️ Diversité de produits moyenne</p>", unsafe_allow_html=True)
                 else:
-                    st.markdown("<p class='success-metric'>✅ Bonne diversité de produits</p>", unsafe_allow_html=True)
+                    st.markdown("<p class='success-metric' style='text-align: center; margin-top: 0.5rem;'>✅ Bonne diversité de produits</p>", unsafe_allow_html=True)
             
-            st.subheader("Santé du fabricant")
+
+            title_col, empty_col1, empty_col2 = st.columns([1, 1, 1])
+            with title_col:
+                st.info("Santé du fabricant")
+            
+            col_score, col_chart = st.columns([1, 2])
+            
             health_score = processor.manufacturer_health_score(
                 selected_manufacturer, 
                 selected_category,
@@ -443,22 +485,21 @@ def main():
                 end_date=end_date_obj
             )
             
-            # Afficher le score de santé
-            col_score, col_chart = st.columns([1, 3])
             with col_score:
-                st.metric("Score de santé", f"{health_score:.2%}")
+                st.metric(
+                    label="Score de santé", 
+                    value=f"{health_score:.2%}",
+                    help="Proportion moyenne des produits du fabricant dans les top magasins"
+                )
                 
-                # Évaluation du score de santé
                 if health_score <= 0.3:
-                    st.markdown("<p class='danger-metric'>❗ Fabricant en difficulté</p>", unsafe_allow_html=True)
+                    st.markdown("<p class='danger-metric' style='text-align: center; margin-top: 0.5rem;'>❗ Fabricant en difficulté</p>", unsafe_allow_html=True)
                 elif health_score <= 0.7:
-                    st.markdown("<p class='warning-metric'>⚠️ Fabricant stable</p>", unsafe_allow_html=True)
+                    st.markdown("<p class='warning-metric' style='text-align: center; margin-top: 0.5rem;'>⚠️ Fabricant stable</p>", unsafe_allow_html=True)
                 else:
-                    st.markdown("<p class='success-metric'>✅ Fabricant performant</p>", unsafe_allow_html=True)
+                    st.markdown("<p class='success-metric' style='text-align: center; margin-top: 0.5rem;'>✅ Fabricant performant</p>", unsafe_allow_html=True)
             
-            # Graphique de la part de marché
             with col_chart:
-                # Calculer la part de marché
                 market_share = processor.manufacturer_share_in_category(
                     selected_manufacturer, 
                     selected_category,
@@ -466,7 +507,6 @@ def main():
                     end_date=end_date_obj
                 )
                 
-                # Créer un graphique en anneau pour visualiser la part de marché
                 fig = go.Figure(go.Pie(
                     labels=['Autres fabricants', f'Fabricant {selected_manufacturer}'],
                     values=[1 - market_share, market_share],
@@ -474,15 +514,29 @@ def main():
                     marker_colors=['#E5E5E5', '#3366CC']
                 ))
                 
-                # Centrer le texte au milieu du graphique
                 fig.update_layout(
-                    title=f"Part de marché du fabricant {selected_manufacturer} dans la catégorie {selected_category}",
+                    title={
+                        'text': f"Part de marché du fabricant {selected_manufacturer}",
+                        'y': 0.95,
+                        'x': 0.5,
+                        'xanchor': 'center',
+                        'yanchor': 'top'
+                    },
                     annotations=[dict(
                         text=f"{market_share:.1%}",
                         x=0.5, y=0.5,
-                        font_size=24,
+                        font_size=28,
                         showarrow=False
-                    )]
+                    )],
+                    height=300,
+                    margin=dict(l=0, r=0, t=40, b=10),
+                    legend=dict(
+                        orientation="h",
+                        yanchor="bottom",
+                        y=-0.1,
+                        xanchor="center",
+                        x=0.5
+                    )
                 )
                 
                 st.plotly_chart(fig, use_container_width=True)
@@ -627,7 +681,7 @@ def main():
             st.write("#### 2.2 & 2.3 Analyse des périodes de soldes")
             
             col1, col2 = st.columns(2)
-            
+
             with col1:
                 # Nombre moyen de produits pendant les soldes d'hiver (question 2.2)
                 winter_avg = processor.avg_products_in_discount_period(
@@ -650,7 +704,7 @@ def main():
                     st.dataframe(winter_top_stores)
                 else:
                     st.warning("⚠️ Aucune donnée pour les soldes d'hiver.")
-            
+
             with col2:
                 # Nombre moyen de produits pendant les soldes d'été
                 summer_avg = processor.avg_products_in_discount_period(
