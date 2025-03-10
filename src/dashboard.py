@@ -797,8 +797,8 @@ def main():
         with tab4:
             st.subheader("Données brutes")
             
-            # Créer des onglets pour les données brutes
-            raw_tab1, raw_tab2 = st.tabs(["Produits", "Accords de vente"])
+            # Créer des onglets
+            raw_tab1, raw_tab2, raw_tab3 = st.tabs(["Produits", "Accords de vente", "Diagramme Sankey"])
             
             with raw_tab1:
                 st.subheader(f"Produits dans la catégorie {selected_category}")
@@ -807,6 +807,43 @@ def main():
             with raw_tab2:
                 st.subheader(f"Accords de vente dans la catégorie {selected_category}")
                 st.dataframe(filtered_sales, use_container_width=True)
+            
+            with raw_tab3:
+                st.subheader("Diagramme de flux Sankey")
+                
+                # Ajouter des options de configuration
+                col1, col2 = st.columns(2)
+                with col1:
+                    max_products = st.slider(
+                        "Nombre maximum de produits à afficher",
+                        min_value=1,
+                        max_value=1000,
+                        value=10,
+                        help="Limitez le nombre de produits pour une meilleure lisibilité"
+                    )
+                
+                
+                # Préparer les données pour le Sankey
+                
+                sankey_data = filtered_products.drop_duplicates(['prod_id', 'cat_id', 'mag_id']).head(max_products)
+
+                
+                if not sankey_data.empty:
+                    # Créer et afficher le diagramme Sankey avec configuration
+                    fig = processor.create_sankey_diagram(sankey_data)
+                    
+                    # Configurer l'affichage
+                    st.plotly_chart(fig, use_container_width=True, config={
+                        'displayModeBar': True,
+                        'scrollZoom': True,
+                        'modeBarButtonsToAdd': [
+                            'zoom', 'pan', 'select', 'zoomIn', 'zoomOut', 'autoScale', 'resetScale'
+                        ],
+                            'displaylogo': False     # Masquer le logo Plotly
+                        }
+                    )
+                else:
+                    st.warning("Aucune donnée disponible pour le diagramme Sankey")
 
 # Exécuter l'application lorsque le script est exécuté directement
 if __name__ == "__main__":

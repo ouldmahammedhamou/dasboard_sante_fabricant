@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Any, Tuple, Optional, Union
 from datetime import datetime, timedelta, date
+import plotly.graph_objects as go
 import random
 import json
 import os
@@ -613,6 +614,81 @@ class DataProcessor:
         print("\nRésultats finaux:")
         print(result_df)
         return result_df
+    
+    def create_sankey_diagram(self, df: pd.DataFrame) -> go.Figure:
+        """
+        Crée un diagramme de Sankey pour les produits -> catégories -> fabricants
+        
+        Paramètres:
+            df: DataFrame contenant les colonnes prod_id, cat_id, et fab_id
+            
+        Retourne:
+            Figure Plotly du diagramme Sankey
+        """
+        # Créer les listes de nodes et links
+        prod_ids = df['prod_id'].unique().tolist()
+        mag_ids = df['mag_id'].unique().tolist()
+        cat_ids = df['cat_id'].unique().tolist()
+
+        print(f"Nombre de produits: {len(prod_ids)}")
+        print(f"Nombre de magasins: {len(mag_ids)}")
+        print(f"Nombre de catégories: {len(cat_ids)}")
+
+        # Créer les labels pour chaque node
+        labels = [f"Prod {x}" for x in prod_ids] + \
+                [f"Mag {x}" for x in mag_ids] + \
+                [f"Cat {x}" for x in cat_ids]
+
+        # Mapper les IDs aux indices pour Sankey
+        prod_dict = {pid: idx for idx, pid in enumerate(prod_ids)}
+        mag_dict = {mid: idx + len(prod_ids) for idx, mid in enumerate(mag_ids)}
+        cat_dict = {cid: idx + len(prod_ids) + len(mag_ids) for idx, cid in enumerate(cat_ids)}
+
+        # 🔵 1️⃣ Liens Produits → Magasins (bleu)
+        source_prod_mag = [prod_dict[row['prod_id']] for _, row in df.iterrows()]
+        target_prod_mag = [mag_dict[row['mag_id']] for _, row in df.iterrows()]
+        value_prod_mag = [1 for _ in range(len(df))]
+        color_prod_mag = ["rgba(31, 119, 180, 0.8)"] * len(df)  # Bleu
+
+        # 🔴 2️⃣ Liens Produits → Catégories (rouge)
+        source_prod_cat = [prod_dict[row['prod_id']] for _, row in df.iterrows()]
+        target_prod_cat = [cat_dict[row['cat_id']] for _, row in df.iterrows()]
+        value_prod_cat = [1 for _ in range(len(df))]
+        color_prod_cat = ["rgba(214, 39, 40, 0.8)"] * len(df)  # Rouge
+
+        # Combiner tous les liens
+        source = source_prod_mag + source_prod_cat
+        target = target_prod_mag + target_prod_cat
+        value = value_prod_mag + value_prod_cat
+        link_colors = color_prod_mag + color_prod_cat
+
+        # Création du Sankey avec couleurs
+        fig = go.Figure(data=[go.Sankey(
+            node=dict(
+                pad=15,
+                thickness=20,
+                line=dict(color="black", width=0.5),
+                label=labels,
+                color=["#1f77b4"] * len(prod_ids) +  # Bleu pour produits
+                    ["#2ca02c"] * len(mag_ids) +  # Vert pour magasins
+                    ["#ff7f0e"] * len(cat_ids)  # Orange pour catégories
+            ),
+            link=dict(
+                source=source,
+                target=target,
+                value=value,
+                color=link_colors
+            )
+        )])
+
+        # Mise en page
+        fig.update_layout(
+            title_text="Flux Produits → Magasins → Catégories",
+            font_size=10,
+            height=800
+        )
+
+        return fig
 
 # Code de test
 if __name__ == "__main__":
