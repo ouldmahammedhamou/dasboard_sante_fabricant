@@ -798,7 +798,7 @@ def main():
             st.subheader("Données brutes")
             
             # Créer des onglets
-            raw_tab1, raw_tab2, raw_tab3 = st.tabs(["Produits", "Accords de vente", "Diagramme Sankey"])
+            raw_tab1, raw_tab2, raw_tab3 = st.tabs(["Produits", "Accords de vente", "Diagramme de flux des produits"])
             
             with raw_tab1:
                 st.subheader(f"Produits dans la catégorie {selected_category}")
@@ -809,41 +809,88 @@ def main():
                 st.dataframe(filtered_sales, use_container_width=True)
             
             with raw_tab3:
-                st.subheader("Diagramme de flux Sankey")
+                st.subheader("Diagramme de flux des produits")
                 
-                # Ajouter des options de configuration
                 col1, col2 = st.columns(2)
                 with col1:
                     max_products = st.slider(
-                        "Nombre maximum de produits à afficher",
+                        "Nombre maximum de produits",
                         min_value=1,
-                        max_value=1000,
+                        max_value=100,
                         value=10,
                         help="Limitez le nombre de produits pour une meilleure lisibilité"
                     )
                 
-                
-                # Préparer les données pour le Sankey
-                
-                sankey_data = filtered_products.drop_duplicates(['prod_id', 'cat_id', 'mag_id']).head(max_products)
-
-                
-                if not sankey_data.empty:
-                    # Créer et afficher le diagramme Sankey avec configuration
-                    fig = processor.create_sankey_diagram(sankey_data)
-                    
-                    # Configurer l'affichage
-                    st.plotly_chart(fig, use_container_width=True, config={
-                        'displayModeBar': True,
-                        'scrollZoom': True,
-                        'modeBarButtonsToAdd': [
-                            'zoom', 'pan', 'select', 'zoomIn', 'zoomOut', 'autoScale', 'resetScale'
-                        ],
-                            'displaylogo': False     # Masquer le logo Plotly
-                        }
+                with col2:
+                    show_all_categories = st.checkbox(
+                        "Afficher toutes les catégories",
+                        value=False,
+                        help="Afficher les liens vers toutes les catégories"
                     )
-                else:
-                    st.warning("Aucune donnée disponible pour le diagramme Sankey")
+                
+                try:
+                    # Préparer les données
+                    if show_all_categories:
+                        # Utiliser tous les produits avec leurs catégories
+                        sankey_data = processor.product_df.merge(
+                            processor.sale_df[['prod_id', 'mag_id']].drop_duplicates(),
+                            on='prod_id',
+                            how='left'
+                        )
+                    else:
+                        # Filtrer par la catégorie sélectionnée
+                        sankey_data = filtered_products.merge(
+                            processor.sale_df[['prod_id', 'mag_id']].drop_duplicates(),
+                            on='prod_id',
+                            how='left'
+                        )
+                    
+                    # Limiter le nombre de produits
+                    sankey_data = sankey_data.head(max_products)
+                    
+                    if not sankey_data.empty:
+                        # Créer et afficher le diagramme
+                        fig = processor.create_sankey_diagram(sankey_data)
+                        st.plotly_chart(
+                            fig, 
+                            use_container_width=True,
+                            config={
+                                'displayModeBar': True,
+                                'scrollZoom': True,
+                                'modeBarButtonsToAdd': [
+                                    'zoom', 'pan', 'select', 
+                                    'zoomIn', 'zoomOut', 
+                                    'autoScale', 'resetScale'
+                                ],
+                                'displaylogo': False
+                            }
+                        )
+                        
+                        # Statistiques
+                        st.subheader("Statistiques")
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric(
+                                "Produits",
+                                len(sankey_data['prod_id'].unique()),
+                                help="Nombre de produits affichés"
+                            )
+                        with col2:
+                            st.metric(
+                                "Magasins",
+                                len(sankey_data['mag_id'].dropna().unique()),
+                                help="Nombre de magasins liés"
+                            )
+                        with col3:
+                            st.metric(
+                                "Catégories",
+                                len(sankey_data['cat_id'].unique()),
+                                help="Nombre de catégories"
+                            )
+                
+                except Exception as e:
+                    st.error(f"Erreur lors de la création du diagramme: {str(e)}")
+                    st.write("Données pour le débogage:", sankey_data.head())
 
 # Exécuter l'application lorsque le script est exécuté directement
 if __name__ == "__main__":
