@@ -98,7 +98,7 @@ class APIClient:
         """
         Récupère plusieurs journaux d'accords de vente dans une plage d'ID
         
-        Paramètres:
+        Parametres:
             start_id: ID de début
             end_id: ID de fin
             

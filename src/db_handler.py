@@ -45,7 +45,7 @@ class PostgresHandler:
             self.connection = psycopg2.connect(**self.conn_params)
             print("✓ Connexion à la base de données PostgreSQL réussie")
         except Exception as e:
-            print(f"× Échec de la connexion à la base de données: {e}")
+            print(f"× Echec de la connexion à la base de données: {e}")
             raise
     
     def disconnect(self) -> None:
