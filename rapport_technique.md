@@ -484,5 +484,3 @@ Ce système constitue un outil stratégique essentiel pour les responsables prod
 ---
 
 *Rapport préparé par l'équipe de développement du Tableau de Bord d'Analyse de Santé des Fabricants*
-
-*Date: Septembre 2023* 
